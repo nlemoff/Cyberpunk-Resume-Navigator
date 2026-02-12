@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { CyberpunkScene } from "@/lib/cyberpunkScene";
 import { resumeData } from "@/lib/resumeData";
+import { type QualityTier, saveQuality, getInitialQuality, QUALITY_PRESETS } from "@/lib/qualitySettings";
 
 function LoadingScreen({ onEnter }: { onEnter: () => void }) {
   const [progress, setProgress] = useState(0);
@@ -637,6 +638,131 @@ function MiniMap({ cameraPos }: { cameraPos: { x: number; z: number } }) {
   );
 }
 
+function FpsCounter({ fps }: { fps: number }) {
+  return (
+    <div
+      className="fixed bottom-4 right-4 z-50 px-2 py-1"
+      style={{
+        fontFamily: "Share Tech Mono, monospace",
+        fontSize: "11px",
+        color: fps >= 50 ? "#05D9E8" : fps >= 30 ? "#FFB86C" : "#FF2A6D",
+        background: "rgba(10, 14, 39, 0.7)",
+        border: `1px solid ${fps >= 50 ? "rgba(5, 217, 232, 0.2)" : fps >= 30 ? "rgba(255, 184, 108, 0.2)" : "rgba(255, 42, 109, 0.2)"}`,
+      }}
+      data-testid="fps-counter"
+    >
+      {fps} FPS
+    </div>
+  );
+}
+
+function SettingsOverlay({
+  isOpen,
+  onClose,
+  quality,
+  onQualityChange,
+  config,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  quality: QualityTier;
+  onQualityChange: (tier: QualityTier) => void;
+  config: typeof QUALITY_PRESETS["ultra"];
+}) {
+  if (!isOpen) return null;
+
+  const tiers: QualityTier[] = ["ultra", "high", "low"];
+
+  return (
+    <div
+      className="fixed top-12 right-4 z-50 w-64"
+      style={{
+        fontFamily: "Share Tech Mono, monospace",
+        background: "rgba(10, 14, 39, 0.92)",
+        backdropFilter: "blur(12px)",
+        border: "1px solid rgba(5, 217, 232, 0.2)",
+        boxShadow: "0 0 30px rgba(5, 217, 232, 0.05)",
+      }}
+      data-testid="settings-overlay"
+    >
+      <div
+        className="flex items-center justify-between px-3 py-2"
+        style={{ borderBottom: "1px solid rgba(5, 217, 232, 0.1)" }}
+      >
+        <span className="text-xs tracking-widest" style={{ color: "#05D9E8" }}>
+          GRAPHICS
+        </span>
+        <button
+          onClick={onClose}
+          className="text-xs px-1.5 py-0.5"
+          style={{ color: "rgba(209, 247, 255, 0.5)" }}
+          data-testid="button-close-settings"
+        >
+          X
+        </button>
+      </div>
+
+      <div className="p-3 space-y-3">
+        <div>
+          <div className="text-xs mb-1.5" style={{ color: "rgba(209, 247, 255, 0.4)" }}>
+            QUALITY PRESET
+          </div>
+          <div className="flex gap-1">
+            {tiers.map((tier) => (
+              <button
+                key={tier}
+                onClick={() => onQualityChange(tier)}
+                className="flex-1 px-2 py-1.5 text-xs tracking-wider transition-all"
+                style={{
+                  color: quality === tier ? "#05D9E8" : "rgba(209, 247, 255, 0.4)",
+                  border: `1px solid ${quality === tier ? "rgba(5, 217, 232, 0.4)" : "rgba(209, 247, 255, 0.1)"}`,
+                  background: quality === tier ? "rgba(5, 217, 232, 0.1)" : "transparent",
+                  textTransform: "uppercase",
+                }}
+                data-testid={`quality-${tier}`}
+              >
+                {tier}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="text-xs" style={{ color: "rgba(209, 247, 255, 0.4)" }}>
+            ACTIVE EFFECTS
+          </div>
+          {[
+            { label: "Bloom", enabled: config.bloom.enabled },
+            { label: "Vignette", enabled: config.vignette.enabled },
+            { label: "Chromatic Aberration", enabled: config.chromaticAberration.enabled },
+            { label: "Shadows", enabled: config.shadows.enabled },
+          ].map(({ label, enabled }) => (
+            <div key={label} className="flex items-center justify-between">
+              <span className="text-xs" style={{ color: "rgba(209, 247, 255, 0.55)" }}>
+                {label}
+              </span>
+              <span
+                className="text-xs"
+                style={{ color: enabled ? "#05D9E8" : "rgba(209, 247, 255, 0.25)" }}
+              >
+                {enabled ? "ON" : "OFF"}
+              </span>
+            </div>
+          ))}
+          <div className="flex items-center justify-between">
+            <span className="text-xs" style={{ color: "rgba(209, 247, 255, 0.55)" }}>
+              Render Scale
+            </span>
+            <span className="text-xs" style={{ color: "#FFB86C" }}>
+              {Math.round(config.renderScale * 100)}%
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PortfolioView({ onEnter3D, webGLUnavailable }: { onEnter3D: () => void; webGLUnavailable: boolean }) {
   const [activeSection, setActiveSection] = useState<string | null>("about");
   const sections = [
@@ -1040,6 +1166,17 @@ export default function CyberpunkPortfolio() {
   const [isLocked, setIsLocked] = useState(false);
   const [cameraPos, setCameraPos] = useState({ x: 0, z: 8 });
   const [webGLUnavailable, setWebGLUnavailable] = useState(false);
+  const [fps, setFps] = useState(0);
+  const [quality, setQuality] = useState<QualityTier>(() => getInitialQuality());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const handleQualityChange = useCallback((tier: QualityTier) => {
+    setQuality(tier);
+    saveQuality(tier);
+    if (sceneRef.current) {
+      sceneRef.current.setQuality(tier);
+    }
+  }, []);
 
   const initScene = useCallback(() => {
     if (!containerRef.current || sceneRef.current) return;
@@ -1064,6 +1201,8 @@ export default function CyberpunkPortfolio() {
         setActiveZone(zone ? { type: zone.type, label: zone.label } : null);
       };
       scene.onLockChange = (locked) => setIsLocked(locked);
+      scene.onFpsUpdate = (f) => setFps(f);
+      scene.onQualityChange = (tier) => setQuality(tier);
       sceneRef.current = scene;
       scene.start();
 
@@ -1109,6 +1248,7 @@ export default function CyberpunkPortfolio() {
     }
     setActiveZone(null);
     setIsLocked(false);
+    setSettingsOpen(false);
     setMode("portfolio");
   };
 
@@ -1131,20 +1271,44 @@ export default function CyberpunkPortfolio() {
       <HUD activeZone={activeZone} isLocked={isLocked} />
       <ResumePanel activeZone={activeZone} />
       <MiniMap cameraPos={cameraPos} />
-      <button
-        onClick={handleBack}
-        className="fixed top-4 left-4 z-50 px-3 py-1.5 text-xs tracking-widest transition-all"
-        style={{
-          fontFamily: "Share Tech Mono, monospace",
-          color: "#FF2A6D",
-          border: "1px solid rgba(255, 42, 109, 0.3)",
-          background: "rgba(10, 14, 39, 0.8)",
-          backdropFilter: "blur(8px)",
-        }}
-        data-testid="button-back"
-      >
-        &lt; EXIT APARTMENT
-      </button>
+      <FpsCounter fps={fps} />
+      <SettingsOverlay
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        quality={quality}
+        onQualityChange={handleQualityChange}
+        config={QUALITY_PRESETS[quality]}
+      />
+      <div className="fixed top-4 left-4 z-50 flex gap-2">
+        <button
+          onClick={handleBack}
+          className="px-3 py-1.5 text-xs tracking-widest transition-all"
+          style={{
+            fontFamily: "Share Tech Mono, monospace",
+            color: "#FF2A6D",
+            border: "1px solid rgba(255, 42, 109, 0.3)",
+            background: "rgba(10, 14, 39, 0.8)",
+            backdropFilter: "blur(8px)",
+          }}
+          data-testid="button-back"
+        >
+          &lt; EXIT
+        </button>
+        <button
+          onClick={() => setSettingsOpen(!settingsOpen)}
+          className="px-3 py-1.5 text-xs tracking-widest transition-all"
+          style={{
+            fontFamily: "Share Tech Mono, monospace",
+            color: settingsOpen ? "#05D9E8" : "rgba(209, 247, 255, 0.5)",
+            border: `1px solid ${settingsOpen ? "rgba(5, 217, 232, 0.4)" : "rgba(209, 247, 255, 0.15)"}`,
+            background: settingsOpen ? "rgba(5, 217, 232, 0.08)" : "rgba(10, 14, 39, 0.8)",
+            backdropFilter: "blur(8px)",
+          }}
+          data-testid="button-settings"
+        >
+          GRAPHICS [{quality.toUpperCase()}]
+        </button>
+      </div>
       <div
         ref={containerRef}
         className="w-full h-full cursor-crosshair"

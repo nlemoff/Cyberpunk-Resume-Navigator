@@ -1,4 +1,11 @@
+// TODO: Future – import KTX2Loader for compressed textures, DRACOLoader for mesh compression
 import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { type QualityConfig, type QualityTier, QUALITY_PRESETS, getInitialQuality } from "./qualitySettings";
 import { resumeData } from "./resumeData";
 
 const COLORS = {
@@ -47,6 +54,18 @@ export class CyberpunkScene {
   container: HTMLElement;
   cityLights: THREE.Mesh[] = [];
   floatingParticles?: THREE.Points;
+  composer!: EffectComposer;
+  bloomPass!: UnrealBloomPass;
+  vignettePass!: ShaderPass;
+  chromaticPass!: ShaderPass;
+  qualityConfig: QualityConfig;
+  qualityTier: QualityTier;
+  onQualityChange?: (tier: QualityTier) => void;
+  fpsFrames = 0;
+  fpsTime = 0;
+  currentFps = 0;
+  onFpsUpdate?: (fps: number) => void;
+  lightCones: THREE.Mesh[] = [];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -59,7 +78,7 @@ export class CyberpunkScene {
       75,
       container.clientWidth / container.clientHeight,
       0.1,
-      1000
+      150
     );
     this.camera.position.set(0, 1.7, 8);
 
@@ -69,12 +88,20 @@ export class CyberpunkScene {
       powerPreference: "high-performance",
     });
     this.renderer.setSize(container.clientWidth, container.clientHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.8;
+
+    this.qualityTier = getInitialQuality();
+    this.qualityConfig = QUALITY_PRESETS[this.qualityTier];
+    this.renderer.toneMappingExposure = this.qualityConfig.toneMapping.exposure;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.qualityConfig.renderScale);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.shadowMap.enabled = this.qualityConfig.shadows.enabled;
+
     container.appendChild(this.renderer.domElement);
+    this.setupPostProcessing();
 
     this.buildApartment();
     this.addLighting();
@@ -86,11 +113,97 @@ export class CyberpunkScene {
     window.addEventListener("resize", this.onResize);
   }
 
+  setupPostProcessing() {
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.setSize(w, h);
+
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(renderPass);
+
+    this.bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(w, h),
+      this.qualityConfig.bloom.strength,
+      this.qualityConfig.bloom.radius,
+      this.qualityConfig.bloom.threshold
+    );
+    this.bloomPass.enabled = this.qualityConfig.bloom.enabled;
+    this.composer.addPass(this.bloomPass);
+
+    const chromaticShader = {
+      uniforms: {
+        tDiffuse: { value: null },
+        uOffset: { value: this.qualityConfig.chromaticAberration.offset },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform float uOffset;
+        varying vec2 vUv;
+        void main() {
+          vec2 dir = vUv - vec2(0.5);
+          float d = length(dir);
+          float r = texture2D(tDiffuse, vUv + dir * uOffset * d).r;
+          float g = texture2D(tDiffuse, vUv).g;
+          float b = texture2D(tDiffuse, vUv - dir * uOffset * d).b;
+          float a = texture2D(tDiffuse, vUv).a;
+          gl_FragColor = vec4(r, g, b, a);
+        }
+      `,
+    };
+    this.chromaticPass = new ShaderPass(chromaticShader);
+    this.chromaticPass.enabled = this.qualityConfig.chromaticAberration.enabled;
+    this.composer.addPass(this.chromaticPass);
+
+    const vignetteShader = {
+      uniforms: {
+        tDiffuse: { value: null },
+        uDarkness: { value: this.qualityConfig.vignette.darkness },
+        uOffset: { value: this.qualityConfig.vignette.offset },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform float uDarkness;
+        uniform float uOffset;
+        varying vec2 vUv;
+        void main() {
+          vec4 texel = texture2D(tDiffuse, vUv);
+          vec2 uv = (vUv - vec2(0.5)) * vec2(uOffset);
+          float vig = clamp(1.0 - dot(uv, uv), 0.0, 1.0);
+          texel.rgb *= mix(1.0 - uDarkness, 1.0, vig);
+          gl_FragColor = texel;
+        }
+      `,
+    };
+    this.vignettePass = new ShaderPass(vignetteShader);
+    this.vignettePass.enabled = this.qualityConfig.vignette.enabled;
+    this.composer.addPass(this.vignettePass);
+
+    const outputPass = new OutputPass();
+    this.composer.addPass(outputPass);
+  }
+
   buildApartment() {
     const roomWidth = 20;
     const roomDepth = 24;
     const roomHeight = 4;
 
+    // TODO: Future – replace flat color with baked lightmap texture (KTX2)
     const floorGeo = new THREE.PlaneGeometry(roomWidth, roomDepth);
     const floorMat = new THREE.MeshStandardMaterial({
       color: COLORS.darkFloor,
@@ -229,15 +342,17 @@ export class CyberpunkScene {
   }
 
   addNeonStrips(w: number, d: number, h: number) {
-    const neonCyanMat = new THREE.MeshBasicMaterial({
-      color: COLORS.cyan,
-      transparent: true,
-      opacity: 0.9,
+    const neonCyanMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.cyan,
+      emissiveIntensity: 3.0,
+      toneMapped: false,
     });
-    const neonPinkMat = new THREE.MeshBasicMaterial({
-      color: COLORS.hotPink,
-      transparent: true,
-      opacity: 0.9,
+    const neonPinkMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.hotPink,
+      emissiveIntensity: 3.0,
+      toneMapped: false,
     });
 
     const strips: { pos: [number, number, number]; size: [number, number, number]; mat: THREE.Material }[] = [
@@ -294,10 +409,13 @@ export class CyberpunkScene {
 
     const screenGlow = new THREE.Mesh(
       new THREE.PlaneGeometry(1.7, 0.9),
-      new THREE.MeshBasicMaterial({
-        color: COLORS.cyan,
+      new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: COLORS.cyan,
+        emissiveIntensity: 2.0,
         transparent: true,
-        opacity: 0.3,
+        opacity: 0.5,
+        toneMapped: false,
       })
     );
     screenGlow.position.set(7, 1.65, -10.37);
@@ -365,9 +483,56 @@ export class CyberpunkScene {
     leftWindowLight.position.set(-10.5, 2, 0);
     leftWindowLight.lookAt(0, 2, 0);
     this.scene.add(leftWindowLight);
+
+    this.addLightCones();
+  }
+
+  addLightCones() {
+    const coneMat1 = new THREE.MeshBasicMaterial({
+      color: COLORS.cyan,
+      transparent: true,
+      opacity: 0.04,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const cone1 = new THREE.Mesh(new THREE.ConeGeometry(5, 3, 16, 1, true), coneMat1);
+    cone1.position.set(-8, 1.5, 5);
+    cone1.rotation.x = Math.PI;
+    this.scene.add(cone1);
+    this.lightCones.push(cone1);
+
+    const coneMat2 = new THREE.MeshBasicMaterial({
+      color: COLORS.hotPink,
+      transparent: true,
+      opacity: 0.04,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const cone2 = new THREE.Mesh(new THREE.ConeGeometry(5, 3, 16, 1, true), coneMat2);
+    cone2.position.set(8, 1.5, -5);
+    cone2.rotation.x = Math.PI;
+    this.scene.add(cone2);
+    this.lightCones.push(cone2);
+
+    const coneMat3 = new THREE.MeshBasicMaterial({
+      color: COLORS.amber,
+      transparent: true,
+      opacity: 0.06,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const cone3 = new THREE.Mesh(new THREE.ConeGeometry(2, 3, 16, 1, true), coneMat3);
+    cone3.position.set(7, 2, -10);
+    cone3.rotation.x = Math.PI;
+    this.scene.add(cone3);
+    this.lightCones.push(cone3);
   }
 
   buildCityscape() {
+    // TODO: Future – convert individual window meshes to InstancedMesh for draw-call reduction
     const cityGroup = new THREE.Group();
 
     const buildingMat = new THREE.MeshStandardMaterial({
@@ -431,10 +596,13 @@ export class CyberpunkScene {
       ];
       const sign = new THREE.Mesh(
         new THREE.PlaneGeometry(signW, signH),
-        new THREE.MeshBasicMaterial({
-          color: signColor,
+        new THREE.MeshStandardMaterial({
+          color: 0x000000,
+          emissive: signColor,
+          emissiveIntensity: 2.5,
+          toneMapped: false,
           transparent: true,
-          opacity: 0.7 + Math.random() * 0.3,
+          opacity: 0.8,
         })
       );
       const angle = Math.random() * Math.PI * 2;
@@ -559,10 +727,11 @@ export class CyberpunkScene {
     group.add(basePad);
 
     const ringGeo = new THREE.RingGeometry(1.1, 1.3, 6);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.6,
+    const ringMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: color,
+      emissiveIntensity: 2.5,
+      toneMapped: false,
       side: THREE.DoubleSide,
     });
     const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -572,10 +741,13 @@ export class CyberpunkScene {
     this.neonMeshes.push(ring);
 
     const beamGeo = new THREE.CylinderGeometry(0.02, 0.02, 3, 8);
-    const beamMat = new THREE.MeshBasicMaterial({
-      color,
+    const beamMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: color,
+      emissiveIntensity: 1.5,
       transparent: true,
       opacity: 0.3,
+      toneMapped: false,
     });
     const beam = new THREE.Mesh(beamGeo, beamMat);
     beam.position.y = 1.5;
@@ -583,10 +755,11 @@ export class CyberpunkScene {
     this.hologramMeshes.push(beam);
 
     const iconGeo = new THREE.OctahedronGeometry(0.25, 0);
-    const iconMat = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.8,
+    const iconMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: color,
+      emissiveIntensity: 2.0,
+      toneMapped: false,
     });
     const icon = new THREE.Mesh(iconGeo, iconMat);
     icon.position.y = 2.5;
@@ -610,6 +783,7 @@ export class CyberpunkScene {
   }
 
   addAtmosphericEffects() {
+    // TODO: Future – move particle animation to vertex shader for GPU-driven particles
     const particleCount = 800;
     const positions = new Float32Array(particleCount * 3);
     const colors = new Float32Array(particleCount * 3);
@@ -741,9 +915,19 @@ export class CyberpunkScene {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    this.composer?.setSize(w, h);
   };
 
   update() {
+    this.fpsFrames++;
+    const now = performance.now();
+    if (now - this.fpsTime >= 1000) {
+      this.currentFps = this.fpsFrames;
+      this.fpsFrames = 0;
+      this.fpsTime = now;
+      this.onFpsUpdate?.(this.currentFps);
+    }
+
     const delta = this.clock.getDelta();
     const time = this.clock.getElapsedTime();
 
@@ -785,12 +969,21 @@ export class CyberpunkScene {
     }
 
     this.neonMeshes.forEach((mesh, i) => {
-      const mat = mesh.material as THREE.MeshBasicMaterial;
-      mat.opacity = 0.5 + Math.sin(time * 2 + i * 0.5) * 0.3;
+      const mat = mesh.material as THREE.Material & { opacity?: number; emissiveIntensity?: number };
+      if ("emissiveIntensity" in mat) {
+        mat.emissiveIntensity = 2.0 + Math.sin(time * 2 + i * 0.5) * 1.0;
+      }
+      if (mat.opacity !== undefined) {
+        mat.opacity = 0.5 + Math.sin(time * 2 + i * 0.5) * 0.3;
+      }
     });
 
     this.hologramMeshes.forEach((mesh, i) => {
       mesh.rotation.y = time * 0.5 + i;
+      const mat = mesh.material as THREE.Material & { emissiveIntensity?: number };
+      if ("emissiveIntensity" in mat) {
+        mat.emissiveIntensity = 1.5 + Math.sin(time * 3 + i) * 0.8;
+      }
       if (mesh.geometry.type === "OctahedronGeometry") {
         mesh.position.y = 2.5 + Math.sin(time * 1.5 + i) * 0.15;
         mesh.rotation.x = time * 0.3;
@@ -856,7 +1049,11 @@ export class CyberpunkScene {
       this.onZoneChange?.(closestZone);
     }
 
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   animate = () => {
@@ -866,6 +1063,44 @@ export class CyberpunkScene {
 
   start() {
     this.animate();
+  }
+
+  setQuality(tier: QualityTier) {
+    this.qualityTier = tier;
+    this.qualityConfig = QUALITY_PRESETS[tier];
+
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.qualityConfig.renderScale);
+
+    this.renderer.toneMappingExposure = this.qualityConfig.toneMapping.exposure;
+
+    this.renderer.shadowMap.enabled = this.qualityConfig.shadows.enabled;
+
+    if (this.bloomPass) {
+      this.bloomPass.enabled = this.qualityConfig.bloom.enabled;
+      this.bloomPass.strength = this.qualityConfig.bloom.strength;
+      this.bloomPass.radius = this.qualityConfig.bloom.radius;
+      this.bloomPass.threshold = this.qualityConfig.bloom.threshold;
+    }
+
+    if (this.vignettePass) {
+      this.vignettePass.enabled = this.qualityConfig.vignette.enabled;
+      if (this.vignettePass.uniforms["uDarkness"]) {
+        this.vignettePass.uniforms["uDarkness"].value = this.qualityConfig.vignette.darkness;
+      }
+    }
+
+    if (this.chromaticPass) {
+      this.chromaticPass.enabled = this.qualityConfig.chromaticAberration.enabled;
+      if (this.chromaticPass.uniforms["uOffset"]) {
+        this.chromaticPass.uniforms["uOffset"].value = this.qualityConfig.chromaticAberration.offset;
+      }
+    }
+
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+    this.composer?.setSize(w, h);
+
+    this.onQualityChange?.(tier);
   }
 
   dispose() {
@@ -902,6 +1137,7 @@ export class CyberpunkScene {
       (this.rainParticles.material as THREE.PointsMaterial).dispose();
     }
 
+    this.composer?.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement) {
       this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
