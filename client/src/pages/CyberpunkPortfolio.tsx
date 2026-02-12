@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { CyberpunkScene } from "@/lib/cyberpunkScene";
 import { resumeData } from "@/lib/resumeData";
 import { type QualityTier, saveQuality, getInitialQuality, QUALITY_PRESETS } from "@/lib/qualitySettings";
+import { HOTSPOTS } from "@/lib/hotspots";
 
 function LoadingScreen({ onEnter }: { onEnter: () => void }) {
   const [progress, setProgress] = useState(0);
@@ -226,6 +227,26 @@ function HUD({
             MOVE
           </span>
         </div>
+        <div
+          className="flex gap-1 mt-1"
+        >
+          <div
+            className="px-2 h-7 flex items-center justify-center text-xs border"
+            style={{
+              color: "rgba(209, 247, 255, 0.5)",
+              borderColor: "rgba(209, 247, 255, 0.15)",
+              background: "rgba(10, 14, 39, 0.7)",
+            }}
+          >
+            SHIFT
+          </div>
+          <span
+            className="ml-2 text-xs self-center"
+            style={{ color: "rgba(209, 247, 255, 0.3)" }}
+          >
+            SPRINT
+          </span>
+        </div>
         {!isLocked && (
           <div
             className="text-xs animate-pulse"
@@ -245,10 +266,10 @@ function HUD({
           <div
             className="px-4 py-2 text-sm"
             style={{
-              color: "#05D9E8",
-              background: "rgba(5, 217, 232, 0.08)",
-              border: "1px solid rgba(5, 217, 232, 0.3)",
-              boxShadow: "0 0 15px rgba(5, 217, 232, 0.1)",
+              color: HOTSPOTS.find(h => h.contentKey === activeZone.type)?.color || "#05D9E8",
+              background: `${HOTSPOTS.find(h => h.contentKey === activeZone.type)?.color || "#05D9E8"}12`,
+              border: `1px solid ${HOTSPOTS.find(h => h.contentKey === activeZone.type)?.color || "#05D9E8"}50`,
+              boxShadow: `0 0 15px ${HOTSPOTS.find(h => h.contentKey === activeZone.type)?.color || "#05D9E8"}15`,
             }}
             data-testid="text-zone-indicator"
           >
@@ -573,13 +594,12 @@ function MiniMap({ cameraPos }: { cameraPos: { x: number; z: number } }) {
   const px = ((cameraPos.x + roomW / 2) / roomW) * mapSize;
   const pz = ((cameraPos.z + roomD / 2) / roomD) * mapSize;
 
-  const stations = [
-    { x: 0, z: -10, label: "EXP", color: "#FF2A6D" },
-    { x: -7, z: -4, label: "SKL", color: "#05D9E8" },
-    { x: -5, z: 8, label: "PRJ", color: "#FFB86C" },
-    { x: 7, z: 4, label: "EDU", color: "#7B2FBE" },
-    { x: 3, z: -6, label: "ABT", color: "#D1F7FF" },
-  ];
+  const stations = HOTSPOTS.map(h => ({
+    x: h.position.x,
+    z: h.position.z,
+    label: h.label.substring(0, 3),
+    color: h.color,
+  }));
 
   return (
     <div
@@ -1197,8 +1217,8 @@ export default function CyberpunkPortfolio() {
 
     try {
       const scene = new CyberpunkScene(containerRef.current);
-      scene.onZoneChange = (zone) => {
-        setActiveZone(zone ? { type: zone.type, label: zone.label } : null);
+      scene.onHotspotChange = (hotspot) => {
+        setActiveZone(hotspot ? { type: hotspot.contentKey, label: hotspot.label } : null);
       };
       scene.onLockChange = (locked) => setIsLocked(locked);
       scene.onFpsUpdate = (f) => setFps(f);

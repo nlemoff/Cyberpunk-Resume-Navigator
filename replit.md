@@ -14,13 +14,16 @@ A cyberpunk-themed portfolio site for Nick Lemoff. Opens to a flat, browsable po
 2. User browses About, Experience, Skills, Projects, Education sections
 3. Optional: Click "ENTER 3D APARTMENT" to launch 3D mode (desktop only)
 4. Loading screen with progress bar -> 3D apartment experience
-5. "EXIT APARTMENT" button returns to flat portfolio
-6. If WebGL unavailable, 3D buttons are disabled with "3D UNAVAILABLE" label
+5. Walk near hotspots to trigger HTML resume panels (proximity + forward raycast)
+6. "EXIT APARTMENT" button returns to flat portfolio
+7. If WebGL unavailable, 3D buttons are disabled with "3D UNAVAILABLE" label
 
 ## Key Files
-- `client/src/lib/cyberpunkScene.ts` - Core Three.js scene with apartment, cityscape, lighting, atmospheric effects
+- `client/src/lib/cyberpunkScene.ts` - Core Three.js scene with apartment, cityscape, lighting, controls, collision, hotspot detection
+- `client/src/lib/hotspots.ts` - Hotspot definitions (positions, radii, labels, content keys) and collision box AABBs
+- `client/src/lib/qualitySettings.ts` - Quality tier definitions (Ultra/High/Low) with GPU auto-detect
 - `client/src/lib/resumeData.ts` - Static resume data from nlemoff.com
-- `client/src/pages/CyberpunkPortfolio.tsx` - Main page with portfolio view, loading screen, HUD, resume panels, minimap
+- `client/src/pages/CyberpunkPortfolio.tsx` - Main page with portfolio view, loading screen, HUD, resume panels, minimap, settings overlay
 - `client/src/App.tsx` - Router setup
 
 ## Design
@@ -28,19 +31,30 @@ A cyberpunk-themed portfolio site for Nick Lemoff. Opens to a flat, browsable po
 - **Fonts**: Orbitron (headings), Rajdhani (body), Share Tech Mono (code/labels)
 - **Theme**: Cyberpunk 2077 inspired with neon lighting and dark backgrounds
 
+## 3D Systems
+- **Movement**: Acceleration-based WASD + mouse look, sprint (Shift), head bob, smooth deceleration (exp decay, DECEL_RATE=18)
+- **Collision**: Capsule (circle in XZ, PLAYER_RADIUS=0.35) vs AABB boxes for walls and furniture, slide-along-wall response
+- **Hotspots**: 5 proximity-triggered zones defined in hotspots.ts, detected via XZ distance + forward raycast, emitted to React via onHotspotChange callback
+- **Postprocessing**: EffectComposer with UnrealBloomPass, vignette, chromatic aberration, OutputPass; quality-tier controlled
+- **Quality**: Ultra/High/Low tiers controlling render scale, bloom, vignette, shadows; GPU auto-detect + localStorage persistence
+
 ## Features
 - Flat portfolio with tabbed navigation (default view)
-- First-person WASD + mouse navigation in 3D mode
-- 5 interactive resume stations (Experience, Skills, Projects, Education, About)
+- First-person WASD + mouse navigation with sprint and head bob
+- Capsule collision preventing walking through walls/furniture
+- 5 interactive resume hotspots with proximity + raycast detection
+- Resume content shown in crisp HTML overlay panels
 - Holographic floating labels above stations
-- Animated neon lighting and particle effects
-- Rain effect visible through windows
-- Cityscape with flickering building windows
-- HUD overlay with navigation hints, social links
-- Minimap showing player position and stations
+- Animated neon lighting with bloom-aware emissive materials
+- Rain effect, floating particles, cityscape with flickering windows
+- HUD overlay with WASD/Sprint hints, zone indicator, crosshair, social links
+- Minimap showing player position and hotspot stations (data-driven from HOTSPOTS)
+- Graphics quality settings (Ultra/High/Low) with FPS counter
 - Animated loading screen with progress bar
 - Graceful WebGL fallback with disabled 3D buttons
 
 ## Recent Changes
+- February 2026: Milestone 2 - First-person controls (acceleration, sprint, head bob), capsule collision, hotspot interaction system
+- February 2026: Milestone 1 - Postprocessing pipeline (bloom, vignette, chromatic aberration), quality settings, emissive materials
 - February 2026: Restructured flow - site opens to flat portfolio, 3D is optional desktop enhancement
 - February 2026: Initial build

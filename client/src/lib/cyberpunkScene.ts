@@ -7,6 +7,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { type QualityConfig, type QualityTier, QUALITY_PRESETS, getInitialQuality } from "./qualitySettings";
 import { resumeData } from "./resumeData";
+import { HOTSPOTS, COLLISION_BOXES, PLAYER_RADIUS, PLAYER_HEIGHT, type Hotspot } from "./hotspots";
 
 const COLORS = {
   hotPink: 0xff2a6d,
@@ -21,31 +22,32 @@ const COLORS = {
   ceilingDark: 0x080b1a,
 };
 
-interface InteractiveZone {
-  position: THREE.Vector3;
-  radius: number;
-  type: string;
-  label: string;
-  panelGroup: THREE.Group;
-}
+const WALK_SPEED = 4.5;
+const SPRINT_SPEED = 7.5;
+const ACCEL_FACTOR = 1 / 0.15;
+const DECEL_RATE = 18;
+const HEAD_BOB_AMP = 0.03;
+const HEAD_BOB_WALK_FREQ = 8;
+const HEAD_BOB_SPRINT_FREQ = 12;
+const PITCH_LIMIT = (85 * Math.PI) / 180;
 
 export class CyberpunkScene {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   clock: THREE.Clock;
-  interactiveZones: InteractiveZone[] = [];
   moveForward = false;
   moveBackward = false;
   moveLeft = false;
   moveRight = false;
+  sprinting = false;
   velocity = new THREE.Vector3();
   direction = new THREE.Vector3();
   euler = new THREE.Euler(0, 0, 0, "YXZ");
   isLocked = false;
   raycaster = new THREE.Raycaster();
-  activeZone: InteractiveZone | null = null;
-  onZoneChange?: (zone: InteractiveZone | null) => void;
+  activeHotspot: Hotspot | null = null;
+  onHotspotChange?: (hotspot: Hotspot | null) => void;
   onLockChange?: (locked: boolean) => void;
   neonMeshes: THREE.Mesh[] = [];
   rainParticles?: THREE.Points;
@@ -66,6 +68,8 @@ export class CyberpunkScene {
   currentFps = 0;
   onFpsUpdate?: (fps: number) => void;
   lightCones: THREE.Mesh[] = [];
+  currentSpeed = 0;
+  headBobPhase = 0;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -80,7 +84,7 @@ export class CyberpunkScene {
       0.1,
       150
     );
-    this.camera.position.set(0, 1.7, 8);
+    this.camera.position.set(0, PLAYER_HEIGHT, 8);
 
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -709,8 +713,8 @@ export class CyberpunkScene {
 
   createStation(
     position: THREE.Vector3,
-    type: string,
-    label: string,
+    _type: string,
+    _label: string,
     color: number
   ) {
     const group = new THREE.Group();
@@ -766,20 +770,7 @@ export class CyberpunkScene {
     group.add(icon);
     this.hologramMeshes.push(icon);
 
-    const panelGroup = new THREE.Group();
-    panelGroup.position.y = 1.5;
-    panelGroup.visible = false;
-    group.add(panelGroup);
-
     this.scene.add(group);
-
-    this.interactiveZones.push({
-      position: position.clone(),
-      radius: 3.5,
-      type,
-      label,
-      panelGroup,
-    });
   }
 
   addAtmosphericEffects() {
@@ -887,7 +878,7 @@ export class CyberpunkScene {
     this.euler.setFromQuaternion(this.camera.quaternion);
     this.euler.y -= e.movementX * sensitivity;
     this.euler.x -= e.movementY * sensitivity;
-    this.euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.euler.x));
+    this.euler.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.euler.x));
     this.camera.quaternion.setFromEuler(this.euler);
   };
 
@@ -897,6 +888,7 @@ export class CyberpunkScene {
       case "KeyS": case "ArrowDown": this.moveBackward = true; break;
       case "KeyA": case "ArrowLeft": this.moveLeft = true; break;
       case "KeyD": case "ArrowRight": this.moveRight = true; break;
+      case "ShiftLeft": case "ShiftRight": this.sprinting = true; break;
     }
   };
 
@@ -906,6 +898,7 @@ export class CyberpunkScene {
       case "KeyS": case "ArrowDown": this.moveBackward = false; break;
       case "KeyA": case "ArrowLeft": this.moveLeft = false; break;
       case "KeyD": case "ArrowRight": this.moveRight = false; break;
+      case "ShiftLeft": case "ShiftRight": this.sprinting = false; break;
     }
   };
 
@@ -917,6 +910,47 @@ export class CyberpunkScene {
     this.renderer.setSize(w, h);
     this.composer?.setSize(w, h);
   };
+
+  resolveCollisions(position: THREE.Vector3): THREE.Vector3 {
+    const resolved = position.clone();
+    for (const box of COLLISION_BOXES) {
+      const cx = resolved.x;
+      const cz = resolved.z;
+      const r = PLAYER_RADIUS;
+      const minX = box.min.x;
+      const minZ = box.min.z;
+      const maxX = box.max.x;
+      const maxZ = box.max.z;
+
+      const closestX = Math.max(minX, Math.min(cx, maxX));
+      const closestZ = Math.max(minZ, Math.min(cz, maxZ));
+      const dx = cx - closestX;
+      const dz = cz - closestZ;
+      const distSq = dx * dx + dz * dz;
+
+      if (distSq < r * r) {
+        if (distSq > 0.0001) {
+          const dist = Math.sqrt(distSq);
+          const pen = r - dist;
+          const nx = dx / dist;
+          const nz = dz / dist;
+          resolved.x += nx * pen;
+          resolved.z += nz * pen;
+        } else {
+          const penLeft = cx - minX + r;
+          const penRight = maxX - cx + r;
+          const penBack = cz - minZ + r;
+          const penFront = maxZ - cz + r;
+          const minPen = Math.min(penLeft, penRight, penBack, penFront);
+          if (minPen === penLeft) resolved.x = minX - r;
+          else if (minPen === penRight) resolved.x = maxX + r;
+          else if (minPen === penBack) resolved.z = minZ - r;
+          else resolved.z = maxZ + r;
+        }
+      }
+    }
+    return resolved;
+  }
 
   update() {
     this.fpsFrames++;
@@ -932,18 +966,21 @@ export class CyberpunkScene {
     const time = this.clock.getElapsedTime();
 
     if (this.isLocked) {
-      const speed = 5;
-      this.velocity.x -= this.velocity.x * 10.0 * delta;
-      this.velocity.z -= this.velocity.z * 10.0 * delta;
+      const targetSpeed = (this.moveForward || this.moveBackward || this.moveLeft || this.moveRight)
+        ? (this.sprinting ? SPRINT_SPEED : WALK_SPEED)
+        : 0;
+
+      const accelLerp = 1 - Math.exp(-ACCEL_FACTOR * delta);
+      if (targetSpeed > 0) {
+        this.currentSpeed += (targetSpeed - this.currentSpeed) * accelLerp;
+      } else {
+        this.currentSpeed *= Math.exp(-DECEL_RATE * delta);
+        if (this.currentSpeed < 0.01) this.currentSpeed = 0;
+      }
 
       this.direction.z = Number(this.moveForward) - Number(this.moveBackward);
       this.direction.x = Number(this.moveRight) - Number(this.moveLeft);
-      this.direction.normalize();
-
-      if (this.moveForward || this.moveBackward)
-        this.velocity.z -= this.direction.z * speed * delta;
-      if (this.moveLeft || this.moveRight)
-        this.velocity.x -= this.direction.x * speed * delta;
+      if (this.direction.lengthSq() > 0) this.direction.normalize();
 
       const forward = new THREE.Vector3(0, 0, -1);
       forward.applyQuaternion(this.camera.quaternion);
@@ -955,17 +992,27 @@ export class CyberpunkScene {
       right.y = 0;
       right.normalize();
 
+      const moveVec = new THREE.Vector3();
+      moveVec.addScaledVector(forward, this.direction.z);
+      moveVec.addScaledVector(right, this.direction.x);
+      if (moveVec.lengthSq() > 0) moveVec.normalize();
+
       const newPos = this.camera.position.clone();
-      newPos.addScaledVector(forward, -this.velocity.z);
-      newPos.addScaledVector(right, -this.velocity.x);
+      newPos.addScaledVector(moveVec, this.currentSpeed * delta);
 
-      const roomW = 9;
-      const roomD = 11;
-      newPos.x = Math.max(-roomW, Math.min(roomW, newPos.x));
-      newPos.z = Math.max(-roomD, Math.min(roomD, newPos.z));
-      newPos.y = 1.7;
+      const corrected = this.resolveCollisions(newPos);
+      corrected.y = PLAYER_HEIGHT;
 
-      this.camera.position.copy(newPos);
+      const bobFreq = this.sprinting ? HEAD_BOB_SPRINT_FREQ : HEAD_BOB_WALK_FREQ;
+      const speedRatio = Math.min(this.currentSpeed / WALK_SPEED, 1);
+      if (this.currentSpeed > 0.1) {
+        this.headBobPhase += delta * bobFreq * Math.PI * 2;
+        corrected.y += Math.sin(this.headBobPhase) * HEAD_BOB_AMP * speedRatio;
+      } else {
+        this.headBobPhase = 0;
+      }
+
+      this.camera.position.copy(corrected);
     }
 
     this.neonMeshes.forEach((mesh, i) => {
@@ -1018,35 +1065,42 @@ export class CyberpunkScene {
       mat.opacity = 0.1 + Math.random() * 0.7;
     }
 
-    const camPos2D = new THREE.Vector2(
-      this.camera.position.x,
-      this.camera.position.z
-    );
-    let closestZone: InteractiveZone | null = null;
+    let closestHotspot: Hotspot | null = null;
     let closestDist = Infinity;
-    this.interactiveZones.forEach((zone) => {
-      const zonePos2D = new THREE.Vector2(zone.position.x, zone.position.z);
-      const dist = camPos2D.distanceTo(zonePos2D);
-      if (dist < zone.radius && dist < closestDist) {
+    const camX = this.camera.position.x;
+    const camZ = this.camera.position.z;
+    for (const hotspot of HOTSPOTS) {
+      const dx = camX - hotspot.position.x;
+      const dz = camZ - hotspot.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist < hotspot.radius && dist < closestDist) {
         closestDist = dist;
-        closestZone = zone;
+        closestHotspot = hotspot;
       }
+    }
 
-      const isNear = dist < zone.radius;
-      zone.panelGroup.visible = isNear;
-      const beam = zone.panelGroup.parent?.children.find(
-        (c) => c instanceof THREE.Mesh && 
-        (c.geometry as THREE.CylinderGeometry)?.parameters?.radiusTop === 0.02
+    const fwd = new THREE.Vector3(0, 0, -1);
+    fwd.applyQuaternion(this.camera.quaternion);
+    fwd.normalize();
+    for (const hotspot of HOTSPOTS) {
+      const toHotspot = new THREE.Vector3(
+        hotspot.position.x - camX,
+        0,
+        hotspot.position.z - camZ
       );
-      if (beam) {
-        const bMat = (beam as THREE.Mesh).material as THREE.MeshBasicMaterial;
-        bMat.opacity = isNear ? 0.6 + Math.sin(time * 3) * 0.2 : 0.3;
+      const projDist = toHotspot.dot(new THREE.Vector3(fwd.x, 0, fwd.z).normalize());
+      if (projDist > 0 && projDist < 5) {
+        const crossDist = Math.sqrt(toHotspot.lengthSq() - projDist * projDist);
+        if (crossDist < 1.5 && projDist < closestDist) {
+          closestDist = projDist;
+          closestHotspot = hotspot;
+        }
       }
-    });
+    }
 
-    if (closestZone !== this.activeZone) {
-      this.activeZone = closestZone;
-      this.onZoneChange?.(closestZone);
+    if (closestHotspot !== this.activeHotspot) {
+      this.activeHotspot = closestHotspot;
+      this.onHotspotChange?.(closestHotspot);
     }
 
     if (this.composer) {
