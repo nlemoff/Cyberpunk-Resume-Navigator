@@ -19,12 +19,15 @@ A cyberpunk-themed portfolio site for Nick Lemoff. Opens to a flat, browsable po
 7. If WebGL unavailable, 3D buttons are disabled with "3D UNAVAILABLE" label
 
 ## Key Files
-- `client/src/lib/cyberpunkScene.ts` - Core Three.js scene with apartment, cityscape, lighting, controls, collision, hotspot detection
+- `client/src/lib/cyberpunkScene.ts` - Core Three.js scene with apartment, cityscape, lighting, controls, collision, hotspot detection, GLB loading
+- `client/src/lib/assetLoader.ts` - Asset loader abstraction with GLTFLoader + DRACOLoader + KTX2Loader + MeshoptDecoder, caching, instancing, LOD helpers
 - `client/src/lib/hotspots.ts` - Hotspot definitions (positions, radii, labels, content keys) and collision box AABBs
 - `client/src/lib/qualitySettings.ts` - Quality tier definitions (Ultra/High/Low) with GPU auto-detect
 - `client/src/lib/resumeData.ts` - Static resume data from nlemoff.com
 - `client/src/pages/CyberpunkPortfolio.tsx` - Main page with portfolio view, loading screen, HUD, resume panels, minimap, settings overlay
 - `client/src/App.tsx` - Router setup
+- `docs/asset-pipeline.md` - Recommended offline asset pipeline (Blender → glTF → compression)
+- `scripts/generate-sample-glb.mjs` - Script to generate sample-room.glb placeholder mesh
 
 ## Design
 - **Colors**: Hot Pink (#FF2A6D), Cyan (#05D9E8), Deep Blue (#01012B), Dark Navy (#0A0E27), Electric White (#D1F7FF), Amber (#FFB86C), Purple (#7B2FBE)
@@ -37,6 +40,9 @@ A cyberpunk-themed portfolio site for Nick Lemoff. Opens to a flat, browsable po
 - **Hotspots**: 5 proximity-triggered zones defined in hotspots.ts, detected via XZ distance + forward raycast, emitted to React via onHotspotChange callback
 - **Postprocessing**: EffectComposer with UnrealBloomPass, vignette, chromatic aberration, OutputPass; quality-tier controlled
 - **Quality**: Ultra/High/Low tiers controlling render scale, bloom, vignette, shadows; GPU auto-detect + localStorage persistence
+- **Asset Loading**: AssetLoader wraps GLTFLoader with Draco, KTX2/Basis, and meshopt decoder support; decoder WASM files served from client/public/draco/ and client/public/basis/
+- **Instancing**: City windows use InstancedMesh grouped by color (3 draw calls instead of thousands); AssetLoader.createInstances() helper for GLB props
+- **LOD**: AssetLoader.setupLOD() helper available for distance-based level-of-detail switching
 
 ## Features
 - Flat portfolio with tabbed navigation (default view)
@@ -46,14 +52,17 @@ A cyberpunk-themed portfolio site for Nick Lemoff. Opens to a flat, browsable po
 - Resume content shown in crisp HTML overlay panels
 - Holographic floating labels above stations
 - Animated neon lighting with bloom-aware emissive materials
-- Rain effect, floating particles, cityscape with flickering windows
+- Rain effect, floating particles, cityscape with flickering instanced windows
 - HUD overlay with WASD/Sprint hints, zone indicator, crosshair, social links
 - Minimap showing player position and hotspot stations (data-driven from HOTSPOTS)
 - Graphics quality settings (Ultra/High/Low) with FPS counter
+- glTF asset pipeline with Draco/meshopt/KTX2 compression support
+- Sample GLB (cyber orb on pedestal) loaded and placed in apartment scene
 - Animated loading screen with progress bar
 - Graceful WebGL fallback with disabled 3D buttons
 
 ## Recent Changes
+- February 2026: Milestone 3 - Asset loader with Draco/KTX2/meshopt support, InstancedMesh for city windows, sample GLB pipeline, asset pipeline docs
 - February 2026: Milestone 2 - First-person controls (acceleration, sprint, head bob), capsule collision, hotspot interaction system
 - February 2026: Milestone 1 - Postprocessing pipeline (bloom, vignette, chromatic aberration), quality settings, emissive materials
 - February 2026: Restructured flow - site opens to flat portfolio, 3D is optional desktop enhancement

@@ -1,5 +1,5 @@
-// TODO: Future – import KTX2Loader for compressed textures, DRACOLoader for mesh compression
 import * as THREE from "three";
+import { AssetLoader } from "./assetLoader";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
@@ -54,7 +54,6 @@ export class CyberpunkScene {
   hologramMeshes: THREE.Mesh[] = [];
   animationId?: number;
   container: HTMLElement;
-  cityLights: THREE.Mesh[] = [];
   floatingParticles?: THREE.Points;
   composer!: EffectComposer;
   bloomPass!: UnrealBloomPass;
@@ -70,6 +69,9 @@ export class CyberpunkScene {
   lightCones: THREE.Mesh[] = [];
   currentSpeed = 0;
   headBobPhase = 0;
+  assetLoader: AssetLoader;
+  sampleGLBGroup?: THREE.Group;
+  windowInstances: THREE.InstancedMesh[] = [];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -107,12 +109,15 @@ export class CyberpunkScene {
     container.appendChild(this.renderer.domElement);
     this.setupPostProcessing();
 
+    this.assetLoader = new AssetLoader({ renderer: this.renderer });
+
     this.buildApartment();
     this.addLighting();
     this.buildCityscape();
     this.buildResumeStations();
     this.addAtmosphericEffects();
     this.setupControls();
+    this.loadSampleGLB();
 
     window.addEventListener("resize", this.onResize);
   }
@@ -536,7 +541,6 @@ export class CyberpunkScene {
   }
 
   buildCityscape() {
-    // TODO: Future – convert individual window meshes to InstancedMesh for draw-call reduction
     const cityGroup = new THREE.Group();
 
     const buildingMat = new THREE.MeshStandardMaterial({
@@ -544,6 +548,13 @@ export class CyberpunkScene {
       roughness: 0.8,
       metalness: 0.3,
     });
+
+    const windowGeo = new THREE.PlaneGeometry(0.3, 0.4);
+    const colorBuckets: { color: number; transforms: { pos: THREE.Vector3; rotY: number; opacity: number }[] }[] = [
+      { color: COLORS.hotPink, transforms: [] },
+      { color: COLORS.cyan, transforms: [] },
+      { color: COLORS.amber, transforms: [] },
+    ];
 
     for (let i = 0; i < 80; i++) {
       const w = 1 + Math.random() * 3;
@@ -568,28 +579,48 @@ export class CyberpunkScene {
       for (let row = 0; row < windowRows; row++) {
         for (let col = 0; col < windowCols; col++) {
           if (Math.random() > 0.4) {
-            const winColor = Math.random() > 0.7 ? COLORS.hotPink :
-                            Math.random() > 0.5 ? COLORS.cyan : COLORS.amber;
-            const win = new THREE.Mesh(
-              new THREE.PlaneGeometry(0.3, 0.4),
-              new THREE.MeshBasicMaterial({
-                color: winColor,
-                transparent: true,
-                opacity: 0.2 + Math.random() * 0.6,
-              })
-            );
+            const bucketIdx = Math.random() > 0.7 ? 0 : Math.random() > 0.5 ? 1 : 2;
             const side = Math.random() > 0.5 ? 1 : -1;
-            win.position.set(
-              building.position.x + (w / 2 + 0.01) * side,
-              building.position.y - h / 2 + row * 0.8 + 0.5,
-              building.position.z - d / 2 + col * 0.6 + 0.3
-            );
-            win.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2;
-            cityGroup.add(win);
-            this.cityLights.push(win);
+            colorBuckets[bucketIdx].transforms.push({
+              pos: new THREE.Vector3(
+                building.position.x + (w / 2 + 0.01) * side,
+                building.position.y - h / 2 + row * 0.8 + 0.5,
+                building.position.z - d / 2 + col * 0.6 + 0.3
+              ),
+              rotY: side > 0 ? Math.PI / 2 : -Math.PI / 2,
+              opacity: 0.2 + Math.random() * 0.6,
+            });
           }
         }
       }
+    }
+
+    for (const bucket of colorBuckets) {
+      if (bucket.transforms.length === 0) continue;
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 1.0,
+      });
+      const instanced = new THREE.InstancedMesh(windowGeo, mat, bucket.transforms.length);
+      const dummy = new THREE.Object3D();
+      const baseColor = new THREE.Color(bucket.color);
+
+      bucket.transforms.forEach((t, i) => {
+        dummy.position.copy(t.pos);
+        dummy.rotation.set(0, t.rotY, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        instanced.setMatrixAt(i, dummy.matrix);
+        const dimmed = baseColor.clone().multiplyScalar(t.opacity);
+        instanced.setColorAt(i, dimmed);
+      });
+
+      instanced.instanceMatrix.needsUpdate = true;
+      instanced.instanceColor!.needsUpdate = true;
+      instanced.userData.baseColor = baseColor;
+      cityGroup.add(instanced);
+      this.windowInstances.push(instanced);
     }
 
     for (let i = 0; i < 15; i++) {
@@ -1059,10 +1090,15 @@ export class CyberpunkScene {
       rPos.needsUpdate = true;
     }
 
-    if (this.cityLights.length > 0 && Math.random() > 0.98) {
-      const idx = Math.floor(Math.random() * this.cityLights.length);
-      const mat = this.cityLights[idx].material as THREE.MeshBasicMaterial;
-      mat.opacity = 0.1 + Math.random() * 0.7;
+    for (const inst of this.windowInstances) {
+      if (Math.random() > 0.97) {
+        const baseColor = inst.userData.baseColor as THREE.Color;
+        const idx = Math.floor(Math.random() * inst.count);
+        const brightness = 0.1 + Math.random() * 0.7;
+        const flickered = baseColor.clone().multiplyScalar(brightness);
+        inst.setColorAt(idx, flickered);
+        inst.instanceColor!.needsUpdate = true;
+      }
     }
 
     let closestHotspot: Hotspot | null = null;
@@ -1107,6 +1143,30 @@ export class CyberpunkScene {
       this.composer.render();
     } else {
       this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  async loadSampleGLB() {
+    try {
+      const gltf = await this.assetLoader.loadGLB("/models/sample-room.glb");
+      this.sampleGLBGroup = new THREE.Group();
+      this.sampleGLBGroup.add(gltf.scene);
+      this.sampleGLBGroup.position.set(5, 0.05, -4);
+      this.sampleGLBGroup.scale.set(0.6, 0.6, 0.6);
+
+      gltf.scene.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          const mat = child.material as THREE.MeshStandardMaterial;
+          if (mat.emissive && (mat.emissive.r > 0 || mat.emissive.g > 0 || mat.emissive.b > 0)) {
+            mat.emissiveIntensity = 2.0;
+            mat.toneMapped = false;
+          }
+        }
+      });
+
+      this.scene.add(this.sampleGLBGroup);
+    } catch (_err) {
+      // GLB load is optional; scene works without it
     }
   }
 
@@ -1191,6 +1251,7 @@ export class CyberpunkScene {
       (this.rainParticles.material as THREE.PointsMaterial).dispose();
     }
 
+    this.assetLoader.dispose();
     this.composer?.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentElement) {
