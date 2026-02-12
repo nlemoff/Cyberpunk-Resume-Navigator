@@ -9,6 +9,7 @@ export interface QualityConfig {
   particles: { floatingCount: number; rainCount: number };
   cityLightFlicker: boolean;
   toneMapping: { exposure: number };
+  photoMode: boolean;
 }
 
 const ULTRA: QualityConfig = {
@@ -20,28 +21,39 @@ const ULTRA: QualityConfig = {
   particles: { floatingCount: 800, rainCount: 2000 },
   cityLightFlicker: true,
   toneMapping: { exposure: 0.7 },
+  photoMode: false,
 };
 
 const HIGH: QualityConfig = {
   renderScale: 0.85,
-  bloom: { enabled: true, strength: 1.0, radius: 0.5, threshold: 0.2 },
+  bloom: { enabled: true, strength: 0.8, radius: 0.5, threshold: 0.2 },
   vignette: { enabled: true, darkness: 0.5, offset: 0.95 },
   chromaticAberration: { enabled: false, offset: 0 },
   shadows: { enabled: true, mapSize: 1024, casterCount: 1 },
-  particles: { floatingCount: 400, rainCount: 1000 },
+  particles: { floatingCount: 300, rainCount: 800 },
   cityLightFlicker: true,
   toneMapping: { exposure: 0.7 },
+  photoMode: false,
 };
 
 const LOW: QualityConfig = {
-  renderScale: 0.65,
+  renderScale: 0.6,
   bloom: { enabled: false, strength: 0, radius: 0, threshold: 0 },
   vignette: { enabled: false, darkness: 0, offset: 0 },
   chromaticAberration: { enabled: false, offset: 0 },
   shadows: { enabled: false, mapSize: 512, casterCount: 0 },
-  particles: { floatingCount: 200, rainCount: 500 },
+  particles: { floatingCount: 100, rainCount: 300 },
   cityLightFlicker: false,
   toneMapping: { exposure: 0.75 },
+  photoMode: false,
+};
+
+export const PHOTO_MODE_CONFIG: QualityConfig = {
+  ...ULTRA,
+  renderScale: 1.0,
+  bloom: { enabled: true, strength: 1.5, radius: 0.6, threshold: 0.15 },
+  vignette: { enabled: true, darkness: 0.6, offset: 0.9 },
+  photoMode: true,
 };
 
 export const QUALITY_PRESETS: Record<QualityTier, QualityConfig> = {

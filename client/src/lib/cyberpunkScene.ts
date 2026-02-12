@@ -5,7 +5,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { type QualityConfig, type QualityTier, QUALITY_PRESETS, getInitialQuality } from "./qualitySettings";
+import { type QualityConfig, type QualityTier, QUALITY_PRESETS, PHOTO_MODE_CONFIG, getInitialQuality } from "./qualitySettings";
 import { resumeData } from "./resumeData";
 import { HOTSPOTS, COLLISION_BOXES, PLAYER_RADIUS, PLAYER_HEIGHT, type Hotspot } from "./hotspots";
 
@@ -69,6 +69,10 @@ export class CyberpunkScene {
   lightCones: THREE.Mesh[] = [];
   currentSpeed = 0;
   headBobPhase = 0;
+  photoModeActive = false;
+  photoModeIdleTime = 0;
+  onPhotoModeChange?: (active: boolean) => void;
+  shadowCastingLights: THREE.Light[] = [];
   assetLoader: AssetLoader;
   sampleGLBGroup?: THREE.Group;
   windowInstances: THREE.InstancedMesh[] = [];
@@ -463,15 +467,32 @@ export class CyberpunkScene {
     const ambient = new THREE.AmbientLight(0x050810, 0.5);
     this.scene.add(ambient);
 
+    const shadowsEnabled = this.qualityConfig.shadows.enabled;
+    const shadowMapSize = this.qualityConfig.shadows.mapSize;
+    const maxCasters = this.qualityConfig.shadows.casterCount;
+    let casterIndex = 0;
+
     const cyanPoint = new THREE.PointLight(COLORS.cyan, 3, 20);
     cyanPoint.position.set(-8, 3, 5);
-    cyanPoint.castShadow = true;
+    if (shadowsEnabled && casterIndex < maxCasters) {
+      cyanPoint.castShadow = true;
+      cyanPoint.shadow.mapSize.width = shadowMapSize;
+      cyanPoint.shadow.mapSize.height = shadowMapSize;
+      casterIndex++;
+    }
     this.scene.add(cyanPoint);
+    this.shadowCastingLights.push(cyanPoint);
 
     const pinkPoint = new THREE.PointLight(COLORS.hotPink, 3, 20);
     pinkPoint.position.set(8, 3, -5);
-    pinkPoint.castShadow = true;
+    if (shadowsEnabled && casterIndex < maxCasters) {
+      pinkPoint.castShadow = true;
+      pinkPoint.shadow.mapSize.width = shadowMapSize;
+      pinkPoint.shadow.mapSize.height = shadowMapSize;
+      casterIndex++;
+    }
     this.scene.add(pinkPoint);
+    this.shadowCastingLights.push(pinkPoint);
 
     const purplePoint = new THREE.PointLight(COLORS.purple, 2, 15);
     purplePoint.position.set(0, 3.5, 0);
@@ -805,8 +826,7 @@ export class CyberpunkScene {
   }
 
   addAtmosphericEffects() {
-    // TODO: Future – move particle animation to vertex shader for GPU-driven particles
-    const particleCount = 800;
+    const particleCount = this.qualityConfig.particles.floatingCount;
     const positions = new Float32Array(particleCount * 3);
     const colors = new Float32Array(particleCount * 3);
 
@@ -840,7 +860,7 @@ export class CyberpunkScene {
     this.floatingParticles = new THREE.Points(particleGeo, particleMat);
     this.scene.add(this.floatingParticles);
 
-    const rainCount = 2000;
+    const rainCount = this.qualityConfig.particles.rainCount;
     const rainPositions = new Float32Array(rainCount * 3);
     for (let i = 0; i < rainCount; i++) {
       rainPositions[i * 3] = (Math.random() - 0.5) * 80;
@@ -986,8 +1006,9 @@ export class CyberpunkScene {
   update() {
     this.fpsFrames++;
     const now = performance.now();
-    if (now - this.fpsTime >= 1000) {
-      this.currentFps = this.fpsFrames;
+    const fpsElapsed = now - this.fpsTime;
+    if (fpsElapsed >= 500) {
+      this.currentFps = Math.round(this.fpsFrames / (fpsElapsed / 1000));
       this.fpsFrames = 0;
       this.fpsTime = now;
       this.onFpsUpdate?.(this.currentFps);
@@ -1046,6 +1067,42 @@ export class CyberpunkScene {
       this.camera.position.copy(corrected);
     }
 
+    if (this.currentSpeed < 0.01) {
+      this.photoModeIdleTime += delta;
+      if (this.photoModeIdleTime > 2.0 && !this.photoModeActive && this.qualityTier !== 'low') {
+        this.photoModeActive = true;
+        if (this.bloomPass) {
+          this.bloomPass.enabled = true;
+          this.bloomPass.strength = 1.5;
+        }
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * 1.0);
+        if (this.vignettePass) {
+          this.vignettePass.enabled = true;
+          if (this.vignettePass.uniforms["uDarkness"]) {
+            this.vignettePass.uniforms["uDarkness"].value = 0.6;
+          }
+        }
+        this.onPhotoModeChange?.(true);
+      }
+    } else {
+      this.photoModeIdleTime = 0;
+      if (this.photoModeActive) {
+        this.photoModeActive = false;
+        if (this.bloomPass) {
+          this.bloomPass.enabled = this.qualityConfig.bloom.enabled;
+          this.bloomPass.strength = this.qualityConfig.bloom.strength;
+        }
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.qualityConfig.renderScale);
+        if (this.vignettePass) {
+          this.vignettePass.enabled = this.qualityConfig.vignette.enabled;
+          if (this.vignettePass.uniforms["uDarkness"]) {
+            this.vignettePass.uniforms["uDarkness"].value = this.qualityConfig.vignette.darkness;
+          }
+        }
+        this.onPhotoModeChange?.(false);
+      }
+    }
+
     this.neonMeshes.forEach((mesh, i) => {
       const mat = mesh.material as THREE.Material & { opacity?: number; emissiveIntensity?: number };
       if ("emissiveIntensity" in mat) {
@@ -1090,14 +1147,16 @@ export class CyberpunkScene {
       rPos.needsUpdate = true;
     }
 
-    for (const inst of this.windowInstances) {
-      if (Math.random() > 0.97) {
-        const baseColor = inst.userData.baseColor as THREE.Color;
-        const idx = Math.floor(Math.random() * inst.count);
-        const brightness = 0.1 + Math.random() * 0.7;
-        const flickered = baseColor.clone().multiplyScalar(brightness);
-        inst.setColorAt(idx, flickered);
-        inst.instanceColor!.needsUpdate = true;
+    if (this.qualityConfig.cityLightFlicker) {
+      for (const inst of this.windowInstances) {
+        if (Math.random() > 0.97) {
+          const baseColor = inst.userData.baseColor as THREE.Color;
+          const idx = Math.floor(Math.random() * inst.count);
+          const brightness = 0.1 + Math.random() * 0.7;
+          const flickered = baseColor.clone().multiplyScalar(brightness);
+          inst.setColorAt(idx, flickered);
+          inst.instanceColor!.needsUpdate = true;
+        }
       }
     }
 
@@ -1182,6 +1241,9 @@ export class CyberpunkScene {
   setQuality(tier: QualityTier) {
     this.qualityTier = tier;
     this.qualityConfig = QUALITY_PRESETS[tier];
+
+    this.photoModeActive = false;
+    this.photoModeIdleTime = 0;
 
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.qualityConfig.renderScale);
 

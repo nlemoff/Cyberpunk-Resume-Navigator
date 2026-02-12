@@ -4,22 +4,41 @@ import { resumeData } from "@/lib/resumeData";
 import { type QualityTier, saveQuality, getInitialQuality, QUALITY_PRESETS } from "@/lib/qualitySettings";
 import { HOTSPOTS } from "@/lib/hotspots";
 
-function LoadingScreen({ onEnter }: { onEnter: () => void }) {
+function LoadingScreen({ onEnter, onError }: { onEnter: () => void; onError: () => void }) {
   const [progress, setProgress] = useState(0);
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [statusText, setStatusText] = useState("LOADING SHADERS");
 
   useEffect(() => {
+    const stages = [
+      { at: 15, text: "LOADING SHADERS" },
+      { at: 35, text: "BUILDING GEOMETRY" },
+      { at: 55, text: "LOADING ASSETS" },
+      { at: 75, text: "COMPILING MATERIALS" },
+      { at: 90, text: "INITIALIZING RENDERER" },
+      { at: 100, text: "ENVIRONMENT READY" },
+    ];
+
     const interval = setInterval(() => {
       setProgress((p) => {
-        if (p >= 100) {
+        const next = Math.min(100, p + Math.random() * 6 + 1.5);
+        const stage = stages.filter(s => s.at <= next).pop();
+        if (stage) setStatusText(stage.text);
+        if (next >= 100) {
           clearInterval(interval);
           setReady(true);
           return 100;
         }
-        return p + Math.random() * 8 + 2;
+        return next;
       });
-    }, 80);
-    return () => clearInterval(interval);
+    }, 100);
+
+    const timeout = setTimeout(() => {
+      setLoadError(true);
+    }, 30000);
+
+    return () => { clearInterval(interval); clearTimeout(timeout); };
   }, []);
 
   return (
@@ -75,7 +94,7 @@ function LoadingScreen({ onEnter }: { onEnter: () => void }) {
               className="text-xs tracking-widest"
               style={{ fontFamily: "Share Tech Mono, monospace", color: "#D1F7FF" }}
             >
-              INITIALIZING ENVIRONMENT
+              {statusText}
             </span>
             <span
               className="text-xs"
@@ -99,7 +118,44 @@ function LoadingScreen({ onEnter }: { onEnter: () => void }) {
           </div>
         </div>
 
-        {ready && (
+        {loadError && !ready ? (
+          <div className="text-center">
+            <p
+              className="text-sm mb-4"
+              style={{ fontFamily: "Share Tech Mono, monospace", color: "#FF2A6D" }}
+            >
+              LOADING TIMEOUT — ENVIRONMENT MAY BE SLOW
+            </p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={onEnter}
+                className="px-6 py-2 text-sm tracking-widest uppercase border transition-all duration-300"
+                style={{
+                  fontFamily: "Orbitron, sans-serif",
+                  color: "#FFB86C",
+                  borderColor: "rgba(255, 184, 108, 0.4)",
+                  background: "rgba(255, 184, 108, 0.1)",
+                }}
+                data-testid="button-enter-anyway"
+              >
+                ENTER ANYWAY
+              </button>
+              <button
+                onClick={onError}
+                className="px-6 py-2 text-sm tracking-widest uppercase border transition-all duration-300"
+                style={{
+                  fontFamily: "Share Tech Mono, monospace",
+                  color: "rgba(209, 247, 255, 0.5)",
+                  borderColor: "rgba(209, 247, 255, 0.15)",
+                  background: "rgba(209, 247, 255, 0.03)",
+                }}
+                data-testid="button-back-to-portfolio"
+              >
+                BACK TO PORTFOLIO
+              </button>
+            </div>
+          </div>
+        ) : ready ? (
           <button
             onClick={onEnter}
             className="px-8 py-3 text-lg tracking-widest uppercase border-2 transition-all duration-300 hover:scale-105"
@@ -115,7 +171,7 @@ function LoadingScreen({ onEnter }: { onEnter: () => void }) {
           >
             ENTER APARTMENT
           </button>
-        )}
+        ) : null}
 
         <div
           className="mt-6 text-xs tracking-wider"
@@ -1189,6 +1245,7 @@ export default function CyberpunkPortfolio() {
   const [fps, setFps] = useState(0);
   const [quality, setQuality] = useState<QualityTier>(() => getInitialQuality());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [photoMode, setPhotoMode] = useState(false);
 
   const handleQualityChange = useCallback((tier: QualityTier) => {
     setQuality(tier);
@@ -1223,6 +1280,7 @@ export default function CyberpunkPortfolio() {
       scene.onLockChange = (locked) => setIsLocked(locked);
       scene.onFpsUpdate = (f) => setFps(f);
       scene.onQualityChange = (tier) => setQuality(tier);
+      scene.onPhotoModeChange = (active) => setPhotoMode(active);
       sceneRef.current = scene;
       scene.start();
 
@@ -1283,7 +1341,7 @@ export default function CyberpunkPortfolio() {
   }
 
   if (mode === "loading") {
-    return <LoadingScreen onEnter={handleLoadingComplete} />;
+    return <LoadingScreen onEnter={handleLoadingComplete} onError={() => setMode("portfolio")} />;
   }
 
   return (
@@ -1292,6 +1350,23 @@ export default function CyberpunkPortfolio() {
       <ResumePanel activeZone={activeZone} />
       <MiniMap cameraPos={cameraPos} />
       <FpsCounter fps={fps} />
+      {photoMode && (
+        <div
+          className="fixed top-14 left-1/2 -translate-x-1/2 z-50 px-4 py-1.5"
+          style={{
+            fontFamily: "Share Tech Mono, monospace",
+            fontSize: "11px",
+            color: "#FFB86C",
+            background: "rgba(255, 184, 108, 0.08)",
+            border: "1px solid rgba(255, 184, 108, 0.25)",
+            letterSpacing: "0.1em",
+            animation: "fadeIn 0.5s ease-out",
+          }}
+          data-testid="photo-mode-indicator"
+        >
+          PHOTO MODE // ENHANCED QUALITY
+        </div>
+      )}
       <SettingsOverlay
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
@@ -1335,6 +1410,12 @@ export default function CyberpunkPortfolio() {
         onClick={handleCanvasClick}
         data-testid="three-canvas"
       />
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+          to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+      `}</style>
     </div>
   );
 }
