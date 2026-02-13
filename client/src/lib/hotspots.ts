@@ -81,8 +81,8 @@ export const COLLISION_BOXES: CollisionBox[] = [
     max: { x: 8.6, y: 1, z: -9.3 },
   },
   {
-    min: { x: -7.1, y: 0, z: 2.15 },
-    max: { x: -2.9, y: 0.8, z: 3.85 },
+    min: { x: -7.3, y: 0, z: 2.1 },
+    max: { x: -2.7, y: 1.2, z: 3.85 },
   },
   {
     min: { x: -6.1, y: 0, z: 4.9 },
@@ -91,6 +91,26 @@ export const COLLISION_BOXES: CollisionBox[] = [
   {
     min: { x: 6.4, y: 0, z: -0.35 },
     max: { x: 9.6, y: 3.2, z: 0.35 },
+  },
+  {
+    min: { x: -8.3, y: 0, z: -10.1 },
+    max: { x: -5.7, y: 0.6, z: -7.9 },
+  },
+  {
+    min: { x: 8.5, y: 0, z: -5.3 },
+    max: { x: 9.5, y: 2.3, z: -4.7 },
+  },
+  {
+    min: { x: 6.4, y: 0, z: 7.6 },
+    max: { x: 9.6, y: 1.0, z: 8.4 },
+  },
+  {
+    min: { x: -1.8, y: 0, z: -11.9 },
+    max: { x: 1.8, y: 3.6, z: -11.7 },
+  },
+  {
+    min: { x: 9.2, y: 0, z: -2.5 },
+    max: { x: 9.8, y: 2.5, z: -1.5 },
   },
 ];
 

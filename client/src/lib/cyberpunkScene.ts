@@ -393,8 +393,13 @@ export class CyberpunkScene {
     });
     const darkMat = new THREE.MeshStandardMaterial({
       color: 0x0a0e1a,
-      roughness: 0.6,
-      metalness: 0.4,
+      roughness: 0.8,
+      metalness: 0.2,
+    });
+    const kitchenMat = new THREE.MeshStandardMaterial({
+      color: 0x151830,
+      metalness: 0.7,
+      roughness: 0.2,
     });
 
     const deskTop = new THREE.Mesh(new THREE.BoxGeometry(3, 0.08, 1.2), metalMat);
@@ -435,12 +440,172 @@ export class CyberpunkScene {
     this.scene.add(screenGlow);
     this.hologramMeshes.push(screenGlow);
 
+    const monitor2Stand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.35, 0.08), metalMat);
+    monitor2Stand.position.set(8.3, 1.05, -10.3);
+    this.scene.add(monitor2Stand);
+    const monitor2 = new THREE.Mesh(
+      new THREE.BoxGeometry(1.0, 0.7, 0.04),
+      new THREE.MeshBasicMaterial({ color: COLORS.deepBlue })
+    );
+    monitor2.position.set(8.3, 1.4, -10.4);
+    this.scene.add(monitor2);
+    const screen2Glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.9, 0.6),
+      new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: COLORS.hotPink,
+        emissiveIntensity: 1.5,
+        transparent: true,
+        opacity: 0.4,
+        toneMapped: false,
+      })
+    );
+    screen2Glow.position.set(8.3, 1.4, -10.37);
+    this.scene.add(screen2Glow);
+    this.hologramMeshes.push(screen2Glow);
+
+    const keyboard = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.02, 0.3), metalMat);
+    keyboard.position.set(7, 0.9, -9.7);
+    this.scene.add(keyboard);
+
+    const lampBase = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.4, 8), metalMat);
+    lampBase.position.set(5.8, 1.1, -10.2);
+    this.scene.add(lampBase);
+    const lampShade = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.12, 8), new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.amber,
+      emissiveIntensity: 1.5,
+      toneMapped: false,
+    }));
+    lampShade.position.set(5.8, 1.35, -10.2);
+    lampShade.rotation.x = Math.PI;
+    this.scene.add(lampShade);
+    this.neonMeshes.push(lampShade);
+
+    const cableGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.85, 4);
+    const cableMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9, metalness: 0.1 });
+    for (let i = 0; i < 3; i++) {
+      const cable = new THREE.Mesh(cableGeo, cableMat);
+      cable.position.set(6.5 + i * 0.08, 0.425, -10.5);
+      this.scene.add(cable);
+    }
+
+    const bedPlatform = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.35, 2), darkMat);
+    bedPlatform.position.set(-7, 0.175, -9);
+    this.scene.add(bedPlatform);
+    const mattress = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.15, 1.8), new THREE.MeshStandardMaterial({
+      color: 0x12162a,
+      roughness: 0.9,
+      metalness: 0.1,
+    }));
+    mattress.position.set(-7, 0.425, -9);
+    this.scene.add(mattress);
+    const pillow = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.35), new THREE.MeshStandardMaterial({
+      color: 0x1a1f3a,
+      roughness: 0.8,
+      metalness: 0.1,
+    }));
+    pillow.position.set(-7, 0.53, -9.8);
+    this.scene.add(pillow);
+    const sideTable = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), metalMat);
+    sideTable.position.set(-5.5, 0.25, -9.8);
+    this.scene.add(sideTable);
+
+    const serverRack = new THREE.Mesh(new THREE.BoxGeometry(0.8, 2.2, 0.5), new THREE.MeshStandardMaterial({
+      color: 0x111528,
+      metalness: 0.9,
+      roughness: 0.1,
+    }));
+    serverRack.position.set(9, 1.1, -5);
+    this.scene.add(serverRack);
+    const ledColors = [COLORS.cyan, 0x00ff44, COLORS.cyan, 0x00ff44, COLORS.hotPink];
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 3; col++) {
+        const led = new THREE.Mesh(
+          new THREE.BoxGeometry(0.04, 0.04, 0.01),
+          new THREE.MeshStandardMaterial({
+            color: 0x000000,
+            emissive: ledColors[row % ledColors.length],
+            emissiveIntensity: 3.0,
+            toneMapped: false,
+          })
+        );
+        led.position.set(8.6 + col * 0.15, 0.5 + row * 0.4, -4.74);
+        this.scene.add(led);
+        this.neonMeshes.push(led);
+      }
+    }
+    const serverHum = new THREE.PointLight(COLORS.cyan, 0.3, 3);
+    serverHum.position.set(9, 1.5, -4.5);
+    this.scene.add(serverHum);
+
+    for (let i = 0; i < 4; i++) {
+      const hangCable = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.01, 0.01, 1.5 + Math.random() * 1.5, 4),
+        cableMat
+      );
+      hangCable.position.set(8.7 + Math.random() * 0.6, 3.2, -5.1 + Math.random() * 0.3);
+      this.scene.add(hangCable);
+    }
+
+    const counter = new THREE.Mesh(new THREE.BoxGeometry(3, 0.9, 0.6), kitchenMat);
+    counter.position.set(8, 0.45, 8);
+    this.scene.add(counter);
+    const cabinet1 = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.35), kitchenMat);
+    cabinet1.position.set(7.5, 2.8, 8);
+    this.scene.add(cabinet1);
+    const cabinet2 = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.35), kitchenMat);
+    cabinet2.position.set(9, 2.8, 8);
+    this.scene.add(cabinet2);
+    const sink = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.35), new THREE.MeshStandardMaterial({
+      color: 0x080b18,
+      metalness: 0.95,
+      roughness: 0.05,
+    }));
+    sink.position.set(8, 0.88, 8);
+    this.scene.add(sink);
+    const kitchenHolo = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.8, 0.5),
+      new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: COLORS.cyan,
+        emissiveIntensity: 1.5,
+        transparent: true,
+        opacity: 0.4,
+        toneMapped: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    kitchenHolo.position.set(8, 1.6, 8);
+    this.scene.add(kitchenHolo);
+    this.hologramMeshes.push(kitchenHolo);
+
     const couchBase = new THREE.Mesh(new THREE.BoxGeometry(4, 0.4, 1.5), darkMat);
     couchBase.position.set(-5, 0.35, 3);
     this.scene.add(couchBase);
     const couchBack = new THREE.Mesh(new THREE.BoxGeometry(4, 0.8, 0.2), darkMat);
     couchBack.position.set(-5, 0.75, 2.3);
     this.scene.add(couchBack);
+    const cushion1 = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 1.2), new THREE.MeshStandardMaterial({
+      color: 0x0e1224,
+      roughness: 0.9,
+      metalness: 0.1,
+    }));
+    cushion1.position.set(-5.8, 0.61, 3.1);
+    this.scene.add(cushion1);
+    const cushion2 = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 1.2), new THREE.MeshStandardMaterial({
+      color: 0x0e1224,
+      roughness: 0.9,
+      metalness: 0.1,
+    }));
+    cushion2.position.set(-4.2, 0.61, 3.1);
+    this.scene.add(cushion2);
+    const armrestL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 1.5), darkMat);
+    armrestL.position.set(-7.1, 0.6, 3);
+    this.scene.add(armrestL);
+    const armrestR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 1.5), darkMat);
+    armrestR.position.set(-2.9, 0.6, 3);
+    this.scene.add(armrestR);
 
     const tableTop = new THREE.Mesh(new THREE.BoxGeometry(2, 0.06, 1), metalMat);
     tableTop.position.set(-5, 0.45, 5.5);
@@ -450,21 +615,165 @@ export class CyberpunkScene {
       tl.position.set(-5 + x, 0.225, z);
       this.scene.add(tl);
     });
+    const tablet = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.02, 0.25), new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.cyan,
+      emissiveIntensity: 0.8,
+      toneMapped: false,
+    }));
+    tablet.position.set(-5.2, 0.49, 5.5);
+    this.scene.add(tablet);
+    this.neonMeshes.push(tablet);
+    const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.12, 8), metalMat);
+    mug.position.set(-4.5, 0.54, 5.3);
+    this.scene.add(mug);
+
+    const wallTV = new THREE.Mesh(new THREE.BoxGeometry(3.5, 2, 0.06), new THREE.MeshStandardMaterial({
+      color: 0x050508,
+      metalness: 0.9,
+      roughness: 0.1,
+    }));
+    wallTV.position.set(0, 2.5, -11.8);
+    this.scene.add(wallTV);
+    const tvGlow = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.3, 1.8),
+      new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: COLORS.cyan,
+        emissiveIntensity: 1.2,
+        transparent: true,
+        opacity: 0.35,
+        toneMapped: false,
+      })
+    );
+    tvGlow.position.set(0, 2.5, -11.76);
+    this.scene.add(tvGlow);
+    this.hologramMeshes.push(tvGlow);
 
     const shelfMat = new THREE.MeshStandardMaterial({
       color: 0x151830,
       metalness: 0.7,
       roughness: 0.3,
     });
+    const bookColors = [0x2a1a3a, 0x1a2a3a, 0x3a1a1a, 0x1a3a2a, 0x2a2a1a];
     for (let y = 1; y <= 3; y += 0.7) {
       const shelf = new THREE.Mesh(new THREE.BoxGeometry(3, 0.06, 0.5), shelfMat);
       shelf.position.set(8, y, 0);
       this.scene.add(shelf);
+      for (let b = 0; b < 5; b++) {
+        const bookH = 0.2 + Math.random() * 0.3;
+        const book = new THREE.Mesh(
+          new THREE.BoxGeometry(0.12, bookH, 0.3),
+          new THREE.MeshStandardMaterial({
+            color: bookColors[b % bookColors.length],
+            roughness: 0.7,
+            metalness: 0.2,
+          })
+        );
+        book.position.set(6.8 + b * 0.5, y + 0.03 + bookH / 2, 0);
+        this.scene.add(book);
+      }
+      if (y > 1.5) {
+        const trinket = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.15, 6), metalMat);
+        trinket.position.set(9.1, y + 0.1, 0);
+        this.scene.add(trinket);
+      }
     }
+
+    const neonTriShape = new THREE.Shape();
+    neonTriShape.moveTo(0, 0.6);
+    neonTriShape.lineTo(-0.5, -0.3);
+    neonTriShape.lineTo(0.5, -0.3);
+    neonTriShape.closePath();
+    const neonTriInner = new THREE.Shape();
+    neonTriInner.moveTo(0, 0.55);
+    neonTriInner.lineTo(-0.45, -0.25);
+    neonTriInner.lineTo(0.45, -0.25);
+    neonTriInner.closePath();
+    neonTriShape.holes.push(neonTriInner as unknown as THREE.Path);
+    const neonTriGeo = new THREE.ShapeGeometry(neonTriShape);
+    const neonTriMesh = new THREE.Mesh(neonTriGeo, new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.hotPink,
+      emissiveIntensity: 2.5,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    }));
+    neonTriMesh.position.set(-3, 2.5, -11.75);
+    this.scene.add(neonTriMesh);
+    this.neonMeshes.push(neonTriMesh);
+
+    const neonCircle = new THREE.Mesh(
+      new THREE.RingGeometry(0.3, 0.35, 24),
+      new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: COLORS.cyan,
+        emissiveIntensity: 2.5,
+        toneMapped: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    neonCircle.position.set(9.8, 2.2, -3);
+    neonCircle.rotation.y = -Math.PI / 2;
+    this.scene.add(neonCircle);
+    this.neonMeshes.push(neonCircle);
+
+    const neonLine = new THREE.Mesh(
+      new THREE.BoxGeometry(0.04, 0.04, 2.0),
+      new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: COLORS.hotPink,
+        emissiveIntensity: 2.5,
+        toneMapped: false,
+      })
+    );
+    neonLine.position.set(9.8, 1.5, 2);
+    neonLine.rotation.y = -Math.PI / 2;
+    neonLine.rotation.z = Math.PI * 0.1;
+    this.scene.add(neonLine);
+    this.neonMeshes.push(neonLine);
+
+    const rug = new THREE.Mesh(new THREE.BoxGeometry(5, 0.02, 4), new THREE.MeshStandardMaterial({
+      color: 0x0e1228,
+      roughness: 0.95,
+      metalness: 0.05,
+    }));
+    rug.position.set(-5, 0.01, 4);
+    this.scene.add(rug);
+
+    const weaponRack = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.2, 0.5), metalMat);
+    weaponRack.position.set(9.5, 1.8, -2);
+    this.scene.add(weaponRack);
+    const weapons = [
+      { w: 0.06, h: 0.06, d: 0.8, y: 2.1 },
+      { w: 0.04, h: 0.04, d: 0.7, y: 1.7 },
+      { w: 0.05, h: 0.05, d: 0.9, y: 1.4 },
+    ];
+    weapons.forEach(({ w, h, d, y }) => {
+      const wpn = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), metalMat);
+      wpn.position.set(9.4, y, -2);
+      this.scene.add(wpn);
+    });
+
+    const potGeo = new THREE.CylinderGeometry(0.1, 0.08, 0.15, 8);
+    const pot = new THREE.Mesh(potGeo, new THREE.MeshStandardMaterial({
+      color: 0x2a1a1a,
+      roughness: 0.8,
+      metalness: 0.2,
+    }));
+    pot.position.set(-5.5, 0.58, -9.8);
+    this.scene.add(pot);
+    const plant = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), new THREE.MeshStandardMaterial({
+      color: 0x0a3a1a,
+      roughness: 0.8,
+      metalness: 0.1,
+    }));
+    plant.position.set(-5.5, 0.72, -9.8);
+    this.scene.add(plant);
   }
 
   addLighting() {
-    const ambient = new THREE.AmbientLight(0x050810, 0.5);
+    const ambient = new THREE.AmbientLight(0x050810, 0.15);
     this.scene.add(ambient);
 
     const shadowsEnabled = this.qualityConfig.shadows.enabled;
@@ -472,7 +781,7 @@ export class CyberpunkScene {
     const maxCasters = this.qualityConfig.shadows.casterCount;
     let casterIndex = 0;
 
-    const cyanPoint = new THREE.PointLight(COLORS.cyan, 3, 20);
+    const cyanPoint = new THREE.PointLight(COLORS.cyan, 0.4, 8);
     cyanPoint.position.set(-8, 3, 5);
     if (shadowsEnabled && casterIndex < maxCasters) {
       cyanPoint.castShadow = true;
@@ -483,7 +792,7 @@ export class CyberpunkScene {
     this.scene.add(cyanPoint);
     this.shadowCastingLights.push(cyanPoint);
 
-    const pinkPoint = new THREE.PointLight(COLORS.hotPink, 3, 20);
+    const pinkPoint = new THREE.PointLight(COLORS.hotPink, 0.3, 8);
     pinkPoint.position.set(8, 3, -5);
     if (shadowsEnabled && casterIndex < maxCasters) {
       pinkPoint.castShadow = true;
@@ -494,81 +803,104 @@ export class CyberpunkScene {
     this.scene.add(pinkPoint);
     this.shadowCastingLights.push(pinkPoint);
 
-    const purplePoint = new THREE.PointLight(COLORS.purple, 2, 15);
+    const purplePoint = new THREE.PointLight(COLORS.purple, 0.3, 6);
     purplePoint.position.set(0, 3.5, 0);
     this.scene.add(purplePoint);
 
-    const amberSpot = new THREE.SpotLight(COLORS.amber, 2, 10, Math.PI / 6, 0.5);
+    const amberSpot = new THREE.SpotLight(COLORS.amber, 0.8, 8, Math.PI / 6, 0.5);
     amberSpot.position.set(7, 3.5, -10);
     amberSpot.target.position.set(7, 0, -10);
     this.scene.add(amberSpot);
     this.scene.add(amberSpot.target);
 
-    const windowLight = new THREE.RectAreaLight(COLORS.cyan, 1.5, 10, 3);
+    const windowLight = new THREE.RectAreaLight(COLORS.cyan, 5, 10, 3);
     windowLight.position.set(0, 2, 12.5);
     windowLight.lookAt(0, 2, 0);
     this.scene.add(windowLight);
 
-    const leftWindowLight = new THREE.RectAreaLight(COLORS.hotPink, 0.8, 24, 4);
+    const leftWindowLight = new THREE.RectAreaLight(COLORS.hotPink, 2.5, 24, 4);
     leftWindowLight.position.set(-10.5, 2, 0);
     leftWindowLight.lookAt(0, 2, 0);
     this.scene.add(leftWindowLight);
+
+    const cityGlow = new THREE.DirectionalLight(0x6a3d9a, 1.5);
+    cityGlow.position.set(-10, 8, 15);
+    cityGlow.target.position.set(0, 0, 0);
+    this.scene.add(cityGlow);
+    this.scene.add(cityGlow.target);
+
+    const outsideCyan = new THREE.PointLight(COLORS.cyan, 2.5, 30);
+    outsideCyan.position.set(-15, 3, 5);
+    this.scene.add(outsideCyan);
+
+    const outsidePink = new THREE.PointLight(COLORS.hotPink, 2.0, 25);
+    outsidePink.position.set(0, 4, 18);
+    this.scene.add(outsidePink);
+
+    const outsidePurple = new THREE.PointLight(COLORS.purple, 2.0, 28);
+    outsidePurple.position.set(-12, 5, -5);
+    this.scene.add(outsidePurple);
 
     this.addLightCones();
   }
 
   addLightCones() {
-    const coneMat1 = new THREE.MeshBasicMaterial({
+    const godRayMat = new THREE.MeshBasicMaterial({
       color: COLORS.cyan,
       transparent: true,
-      opacity: 0.04,
+      opacity: 0.025,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
-    const cone1 = new THREE.Mesh(new THREE.ConeGeometry(5, 3, 16, 1, true), coneMat1);
-    cone1.position.set(-8, 1.5, 5);
-    cone1.rotation.x = Math.PI;
-    this.scene.add(cone1);
-    this.lightCones.push(cone1);
 
-    const coneMat2 = new THREE.MeshBasicMaterial({
+    const ray1 = new THREE.Mesh(new THREE.PlaneGeometry(4, 5), godRayMat);
+    ray1.position.set(-2, 1.8, 9);
+    ray1.rotation.x = -0.3;
+    ray1.rotation.y = 0.15;
+    this.scene.add(ray1);
+    this.lightCones.push(ray1);
+
+    const ray2 = new THREE.Mesh(new THREE.PlaneGeometry(3, 5), godRayMat);
+    ray2.position.set(2, 1.8, 9);
+    ray2.rotation.x = -0.3;
+    ray2.rotation.y = -0.15;
+    this.scene.add(ray2);
+    this.lightCones.push(ray2);
+
+    const godRayPinkMat = new THREE.MeshBasicMaterial({
       color: COLORS.hotPink,
       transparent: true,
-      opacity: 0.04,
+      opacity: 0.02,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
-    const cone2 = new THREE.Mesh(new THREE.ConeGeometry(5, 3, 16, 1, true), coneMat2);
-    cone2.position.set(8, 1.5, -5);
-    cone2.rotation.x = Math.PI;
-    this.scene.add(cone2);
-    this.lightCones.push(cone2);
 
-    const coneMat3 = new THREE.MeshBasicMaterial({
-      color: COLORS.amber,
-      transparent: true,
-      opacity: 0.06,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    const cone3 = new THREE.Mesh(new THREE.ConeGeometry(2, 3, 16, 1, true), coneMat3);
-    cone3.position.set(7, 2, -10);
-    cone3.rotation.x = Math.PI;
-    this.scene.add(cone3);
-    this.lightCones.push(cone3);
+    const ray3 = new THREE.Mesh(new THREE.PlaneGeometry(3, 6), godRayPinkMat);
+    ray3.position.set(-8, 2, 3);
+    ray3.rotation.y = Math.PI / 2 + 0.2;
+    ray3.rotation.x = -0.15;
+    this.scene.add(ray3);
+    this.lightCones.push(ray3);
+
+    const ray4 = new THREE.Mesh(new THREE.PlaneGeometry(3, 6), godRayPinkMat);
+    ray4.position.set(-8, 2, -4);
+    ray4.rotation.y = Math.PI / 2 - 0.2;
+    ray4.rotation.x = -0.15;
+    this.scene.add(ray4);
+    this.lightCones.push(ray4);
   }
 
   buildCityscape() {
     const cityGroup = new THREE.Group();
 
-    const buildingMat = new THREE.MeshStandardMaterial({
-      color: 0x060918,
+    const buildingColors = [0x060918, 0x080c20, 0x0a0815];
+    const buildingMats = buildingColors.map(c => new THREE.MeshStandardMaterial({
+      color: c,
       roughness: 0.8,
       metalness: 0.3,
-    });
+    }));
 
     const windowGeo = new THREE.PlaneGeometry(0.3, 0.4);
     const colorBuckets: { color: number; transforms: { pos: THREE.Vector3; rotY: number; opacity: number }[] }[] = [
@@ -577,23 +909,45 @@ export class CyberpunkScene {
       { color: COLORS.amber, transforms: [] },
     ];
 
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 130; i++) {
       const w = 1 + Math.random() * 3;
-      const h = 3 + Math.random() * 25;
+      const h = 5 + Math.random() * 40;
       const d = 1 + Math.random() * 3;
       const building = new THREE.Mesh(
         new THREE.BoxGeometry(w, h, d),
-        buildingMat
+        buildingMats[Math.floor(Math.random() * buildingMats.length)]
       );
 
       const angle = Math.random() * Math.PI * 2;
-      const dist = 20 + Math.random() * 40;
+      const dist = 15 + Math.random() * 35;
       building.position.set(
         Math.sin(angle) * dist,
         h / 2 - 5,
         Math.cos(angle) * dist
       );
       cityGroup.add(building);
+
+      if (Math.random() < 0.25) {
+        const spireH = 1 + Math.random() * 3;
+        const spire = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.03, 0.06, spireH, 6),
+          buildingMats[0]
+        );
+        spire.position.set(building.position.x, building.position.y + h / 2 + spireH / 2, building.position.z);
+        cityGroup.add(spire);
+        const tip = new THREE.Mesh(
+          new THREE.SphereGeometry(0.08, 6, 4),
+          new THREE.MeshStandardMaterial({
+            color: 0x000000,
+            emissive: Math.random() > 0.5 ? COLORS.hotPink : COLORS.cyan,
+            emissiveIntensity: 3.0,
+            toneMapped: false,
+          })
+        );
+        tip.position.set(building.position.x, building.position.y + h / 2 + spireH, building.position.z);
+        cityGroup.add(tip);
+        this.neonMeshes.push(tip);
+      }
 
       const windowRows = Math.floor(h / 0.8);
       const windowCols = Math.floor(w / 0.6);
@@ -607,6 +961,40 @@ export class CyberpunkScene {
                 building.position.x + (w / 2 + 0.01) * side,
                 building.position.y - h / 2 + row * 0.8 + 0.5,
                 building.position.z - d / 2 + col * 0.6 + 0.3
+              ),
+              rotY: side > 0 ? Math.PI / 2 : -Math.PI / 2,
+              opacity: 0.2 + Math.random() * 0.6,
+            });
+          }
+        }
+      }
+    }
+
+    for (let i = 0; i < 7; i++) {
+      const mw = 3 + Math.random() * 3;
+      const mh = 40 + Math.random() * 20;
+      const md = 3 + Math.random() * 3;
+      const mega = new THREE.Mesh(
+        new THREE.BoxGeometry(mw, mh, md),
+        buildingMats[Math.floor(Math.random() * buildingMats.length)]
+      );
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 25 + Math.random() * 25;
+      mega.position.set(Math.sin(angle) * dist, mh / 2 - 5, Math.cos(angle) * dist);
+      cityGroup.add(mega);
+
+      const windowRows = Math.floor(mh / 0.8);
+      const windowCols = Math.floor(mw / 0.6);
+      for (let row = 0; row < windowRows; row++) {
+        for (let col = 0; col < windowCols; col++) {
+          if (Math.random() > 0.35) {
+            const bucketIdx = Math.floor(Math.random() * 3);
+            const side = Math.random() > 0.5 ? 1 : -1;
+            colorBuckets[bucketIdx].transforms.push({
+              pos: new THREE.Vector3(
+                mega.position.x + (mw / 2 + 0.01) * side,
+                mega.position.y - mh / 2 + row * 0.8 + 0.5,
+                mega.position.z - md / 2 + col * 0.6 + 0.3
               ),
               rotY: side > 0 ? Math.PI / 2 : -Math.PI / 2,
               opacity: 0.2 + Math.random() * 0.6,
@@ -644,9 +1032,9 @@ export class CyberpunkScene {
       this.windowInstances.push(instanced);
     }
 
-    for (let i = 0; i < 15; i++) {
-      const signW = 1 + Math.random() * 2;
-      const signH = 0.5 + Math.random() * 1;
+    for (let i = 0; i < 35; i++) {
+      const signW = 2 + Math.random() * 3;
+      const signH = 0.8 + Math.random() * 1.2;
       const signColor = [COLORS.hotPink, COLORS.cyan, COLORS.amber, COLORS.purple][
         Math.floor(Math.random() * 4)
       ];
@@ -662,16 +1050,79 @@ export class CyberpunkScene {
         })
       );
       const angle = Math.random() * Math.PI * 2;
-      const dist = 18 + Math.random() * 20;
+      const dist = 15 + Math.random() * 25;
       sign.position.set(
         Math.sin(angle) * dist,
-        2 + Math.random() * 12,
+        2 + Math.random() * 15,
         Math.cos(angle) * dist
       );
       sign.lookAt(0, sign.position.y, 0);
       cityGroup.add(sign);
       this.neonMeshes.push(sign);
     }
+
+    for (let i = 0; i < 4; i++) {
+      const bbColor = [COLORS.hotPink, COLORS.cyan, COLORS.amber, COLORS.purple][i % 4];
+      const billboard = new THREE.Mesh(
+        new THREE.PlaneGeometry(6, 3),
+        new THREE.MeshStandardMaterial({
+          color: 0x000000,
+          emissive: bbColor,
+          emissiveIntensity: 3.0,
+          toneMapped: false,
+          transparent: true,
+          opacity: 0.9,
+        })
+      );
+      const angle = (i / 4) * Math.PI * 2 + Math.random() * 0.5;
+      const dist = 20 + Math.random() * 10;
+      billboard.position.set(Math.sin(angle) * dist, 15 + Math.random() * 10, Math.cos(angle) * dist);
+      billboard.lookAt(0, billboard.position.y, 0);
+      cityGroup.add(billboard);
+      this.neonMeshes.push(billboard);
+    }
+
+    const trailColors = [COLORS.cyan, COLORS.hotPink, COLORS.amber];
+    for (let i = 0; i < 10; i++) {
+      const trailLen = 3 + Math.random() * 8;
+      const trail = new THREE.Mesh(
+        new THREE.BoxGeometry(trailLen, 0.04, 0.04),
+        new THREE.MeshStandardMaterial({
+          color: 0x000000,
+          emissive: trailColors[i % trailColors.length],
+          emissiveIntensity: 3.0,
+          toneMapped: false,
+          transparent: true,
+          opacity: 0.7,
+        })
+      );
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 15 + Math.random() * 30;
+      trail.position.set(
+        Math.sin(angle) * dist,
+        5 + Math.random() * 25,
+        Math.cos(angle) * dist
+      );
+      trail.rotation.y = Math.random() * Math.PI;
+      cityGroup.add(trail);
+      this.neonMeshes.push(trail);
+    }
+
+    const groundPlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(120, 120),
+      new THREE.MeshStandardMaterial({
+        color: 0x020308,
+        roughness: 0.9,
+        metalness: 0.1,
+      })
+    );
+    groundPlane.rotation.x = -Math.PI / 2;
+    groundPlane.position.y = -7;
+    cityGroup.add(groundPlane);
+
+    const streetGrid = new THREE.GridHelper(120, 60, 0x0a1020, 0x060810);
+    streetGrid.position.y = -6.99;
+    cityGroup.add(streetGrid);
 
     this.scene.add(cityGroup);
   }
