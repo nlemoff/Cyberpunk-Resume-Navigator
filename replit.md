@@ -69,6 +69,7 @@ A cyberpunk-themed portfolio site for Nick Lemoff. Opens to a flat, browsable po
 - Quality-tier-aware particle counts and shadow caster limits
 
 ## Recent Changes
+- February 2026: Scene overhaul - Exterior-dominant lighting (city glow through windows, dim interior), enhanced cityscape (130+ buildings, mega-structures, flying light trails, ground grid), fully furnished apartment (bed, server rack, kitchen, wall TV, neon wall art, weapons rack, cables, enhanced desk/couch)
 - February 2026: Milestone 4 - Refined quality tiers (particle counts, shadow caps, Low optimization), Photo Mode, staged loading UX with timeout fallback, README with how-to guide
 - February 2026: Milestone 3 - Asset loader with Draco/KTX2/meshopt support, InstancedMesh for city windows, sample GLB pipeline, asset pipeline docs
 - February 2026: Milestone 2 - First-person controls (acceleration, sprint, head bob), capsule collision, hotspot interaction system
