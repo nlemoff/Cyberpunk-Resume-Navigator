@@ -5,6 +5,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
 import { type QualityConfig, type QualityTier, QUALITY_PRESETS, PHOTO_MODE_CONFIG, getInitialQuality } from "./qualitySettings";
 import { resumeData } from "./resumeData";
 import { HOTSPOTS, COLLISION_BOXES, PLAYER_RADIUS, PLAYER_HEIGHT, type Hotspot } from "./hotspots";
@@ -82,6 +83,20 @@ export class CyberpunkScene {
     wallCanvas: HTMLCanvasElement;
     ceilingMap: THREE.CanvasTexture;
   };
+  envMapTexture?: THREE.Texture;
+  pmremGenerator?: THREE.PMREMGenerator;
+  pbrTexturesLoaded = false;
+  envMapLoaded = false;
+  pbrMaps?: {
+    floor: { color: THREE.Texture; normal: THREE.Texture; roughness: THREE.Texture; metalness: THREE.Texture; ao: THREE.Texture | null };
+    wall: { color: THREE.Texture; normal: THREE.Texture; roughness: THREE.Texture; metalness: THREE.Texture; ao: THREE.Texture | null };
+  };
+  floorMesh?: THREE.Mesh;
+  wallMeshes: THREE.Mesh[] = [];
+  windowGlassMeshes: THREE.Mesh[] = [];
+  deskMesh?: THREE.Mesh;
+  couchMeshes: THREE.Mesh[] = [];
+  neonIridescenceMeshes: THREE.Mesh[] = [];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -129,6 +144,14 @@ export class CyberpunkScene {
     this.addAtmosphericEffects();
     this.setupControls();
     this.loadSampleGLB();
+
+    // Lazy-load HDRI and PBR textures based on quality tier
+    if (this.qualityConfig.envMap.enabled) {
+      this.loadEnvironment();
+    }
+    if (this.qualityConfig.pbrTextures) {
+      this.loadPBRTextures();
+    }
 
     window.addEventListener("resize", this.onResize);
   }
@@ -355,6 +378,7 @@ export class CyberpunkScene {
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     this.scene.add(floor);
+    this.floorMesh = floor;
 
     // Phase 2: Ceiling with procedural texture
     const ceilingGeo = new THREE.PlaneGeometry(roomWidth, roomDepth);
@@ -391,6 +415,7 @@ export class CyberpunkScene {
     );
     backWall.position.set(0, roomHeight / 2, -roomDepth / 2);
     this.scene.add(backWall);
+    this.wallMeshes.push(backWall);
 
     const frontWallLeft = new THREE.Mesh(
       new THREE.PlaneGeometry(5, roomHeight),
@@ -399,6 +424,7 @@ export class CyberpunkScene {
     frontWallLeft.position.set(-7.5, roomHeight / 2, roomDepth / 2);
     frontWallLeft.rotation.y = Math.PI;
     this.scene.add(frontWallLeft);
+    this.wallMeshes.push(frontWallLeft);
 
     const frontWallRight = new THREE.Mesh(
       new THREE.PlaneGeometry(5, roomHeight),
@@ -407,6 +433,7 @@ export class CyberpunkScene {
     frontWallRight.position.set(7.5, roomHeight / 2, roomDepth / 2);
     frontWallRight.rotation.y = Math.PI;
     this.scene.add(frontWallRight);
+    this.wallMeshes.push(frontWallRight);
 
     const plainWallMat = new THREE.MeshStandardMaterial({
       color: COLORS.wallDark,
@@ -438,6 +465,7 @@ export class CyberpunkScene {
     windowGlass.position.set(0, 1.5, roomDepth / 2 - 0.05);
     windowGlass.rotation.y = Math.PI;
     this.scene.add(windowGlass);
+    this.windowGlassMeshes.push(windowGlass);
 
     const windowFrameMat = new THREE.MeshStandardMaterial({
       color: 0x1a1f3a,
@@ -487,6 +515,7 @@ export class CyberpunkScene {
     leftWallGlass.position.set(-roomWidth / 2, roomHeight / 2, 0);
     leftWallGlass.rotation.y = Math.PI / 2;
     this.scene.add(leftWallGlass);
+    this.windowGlassMeshes.push(leftWallGlass);
 
     for (let z = -roomDepth / 2; z <= roomDepth / 2; z += 4) {
       const vf = new THREE.Mesh(
@@ -504,6 +533,7 @@ export class CyberpunkScene {
     rightWall.position.set(roomWidth / 2, roomHeight / 2, 0);
     rightWall.rotation.y = -Math.PI / 2;
     this.scene.add(rightWall);
+    this.wallMeshes.push(rightWall);
 
     this.addNeonStrips(roomWidth, roomDepth, roomHeight);
     this.addFurniture();
@@ -561,6 +591,7 @@ export class CyberpunkScene {
     deskTop.position.set(7, 0.85, -10);
     deskTop.castShadow = true;
     this.scene.add(deskTop);
+    this.deskMesh = deskTop;
 
     // Phase 6: Desk cyan edge strip along front
     const deskEdge = new THREE.Mesh(
@@ -833,6 +864,7 @@ export class CyberpunkScene {
     }));
     cushion1.position.set(-5.8, 0.61, 3.1);
     this.scene.add(cushion1);
+    this.couchMeshes.push(cushion1);
     const cushion2 = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 1.2), new THREE.MeshStandardMaterial({
       color: 0x0e1224,
       roughness: 0.9,
@@ -840,6 +872,7 @@ export class CyberpunkScene {
     }));
     cushion2.position.set(-4.2, 0.61, 3.1);
     this.scene.add(cushion2);
+    this.couchMeshes.push(cushion2);
     const armrestL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 1.5), darkMat);
     armrestL.position.set(-7.1, 0.6, 3);
     this.scene.add(armrestL);
@@ -960,6 +993,7 @@ export class CyberpunkScene {
     neonTriMesh.position.set(-3, 2.5, -11.75);
     this.scene.add(neonTriMesh);
     this.neonMeshes.push(neonTriMesh);
+    this.neonIridescenceMeshes.push(neonTriMesh);
 
     const neonCircle = new THREE.Mesh(
       new THREE.RingGeometry(0.3, 0.35, 24),
@@ -975,6 +1009,7 @@ export class CyberpunkScene {
     neonCircle.rotation.y = -Math.PI / 2;
     this.scene.add(neonCircle);
     this.neonMeshes.push(neonCircle);
+    this.neonIridescenceMeshes.push(neonCircle);
 
     const neonLine = new THREE.Mesh(
       new THREE.BoxGeometry(0.04, 0.04, 2.0),
@@ -1193,23 +1228,75 @@ export class CyberpunkScene {
           const ox = (Math.random() - 0.5) * (BLOCK_SIZE - w) * 0.8;
           const oz = (Math.random() - 0.5) * (BLOCK_SIZE - d) * 0.8;
 
-          const building = new THREE.Mesh(
-            new THREE.BoxGeometry(w, h, d),
-            buildingMats[Math.floor(Math.random() * buildingMats.length)]
-          );
-          building.position.set(cx + ox, h / 2 - 5, cz + oz);
-          cityGroup.add(building);
+          const bMat = buildingMats[Math.floor(Math.random() * buildingMats.length)];
+          const bx0 = cx + ox;
+          const bz0 = cz + oz;
+
+          if (h > 25) {
+            // Tall building: two setbacks (base, mid, top)
+            const baseH = h * 0.45;
+            const midH = h * 0.35;
+            const topH = h * 0.2;
+            const midW = w * 0.75;
+            const midD = d * 0.75;
+            const topW = w * 0.55;
+            const topD = d * 0.55;
+
+            const base = new THREE.Mesh(new THREE.BoxGeometry(w, baseH, d), bMat);
+            base.position.set(bx0, baseH / 2 - 5, bz0);
+            cityGroup.add(base);
+
+            const mid = new THREE.Mesh(new THREE.BoxGeometry(midW, midH, midD), bMat);
+            mid.position.set(bx0, baseH + midH / 2 - 5, bz0);
+            cityGroup.add(mid);
+
+            const top = new THREE.Mesh(new THREE.BoxGeometry(topW, topH, topD), bMat);
+            top.position.set(bx0, baseH + midH + topH / 2 - 5, bz0);
+            cityGroup.add(top);
+          } else if (h > 15) {
+            // Medium building: one setback (base + top)
+            const baseH = h * 0.6;
+            const topH = h * 0.4;
+            const topW = w * 0.7;
+            const topD = d * 0.7;
+
+            const base = new THREE.Mesh(new THREE.BoxGeometry(w, baseH, d), bMat);
+            base.position.set(bx0, baseH / 2 - 5, bz0);
+            cityGroup.add(base);
+
+            const top = new THREE.Mesh(new THREE.BoxGeometry(topW, topH, topD), bMat);
+            top.position.set(bx0, baseH + topH / 2 - 5, bz0);
+            cityGroup.add(top);
+          } else {
+            // Short building: single box
+            const building = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bMat);
+            building.position.set(bx0, h / 2 - 5, bz0);
+            cityGroup.add(building);
+          }
           totalBuildings++;
 
-          // Spires on some buildings
-          if (Math.random() < 0.25) {
-            const spireH = 1 + Math.random() * 3;
+          const buildingTopY = h - 5;
+
+          // Spires/antennas on ~20% of tall buildings
+          if (h > 12 && Math.random() < 0.2) {
+            const spireH = 1.5 + Math.random() * 4;
             const spire = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.03, 0.06, spireH, 6),
+              new THREE.CylinderGeometry(0.02, 0.08, spireH, 6),
               buildingMats[0]
             );
-            spire.position.set(building.position.x, building.position.y + h / 2 + spireH / 2, building.position.z);
+            spire.position.set(bx0, buildingTopY + spireH / 2, bz0);
             cityGroup.add(spire);
+
+            // Antenna cross-bars on some
+            if (Math.random() < 0.5) {
+              const bar = new THREE.Mesh(
+                new THREE.BoxGeometry(1.0, 0.04, 0.04),
+                buildingMats[0]
+              );
+              bar.position.set(bx0, buildingTopY + spireH * 0.6, bz0);
+              cityGroup.add(bar);
+            }
+
             const tip = new THREE.Mesh(
               new THREE.SphereGeometry(0.08, 6, 4),
               new THREE.MeshStandardMaterial({
@@ -1219,12 +1306,12 @@ export class CyberpunkScene {
                 toneMapped: false,
               })
             );
-            tip.position.set(building.position.x, building.position.y + h / 2 + spireH, building.position.z);
+            tip.position.set(bx0, buildingTopY + spireH, bz0);
             cityGroup.add(tip);
             this.neonMeshes.push(tip);
           }
 
-          // Windows (instanced)
+          // Windows (instanced) — placed on the base section of the building
           const windowRows = Math.floor(h / 0.8);
           const windowCols = Math.floor(w / 0.6);
           for (let row = 0; row < windowRows; row++) {
@@ -1234,9 +1321,9 @@ export class CyberpunkScene {
                 const side = Math.random() > 0.5 ? 1 : -1;
                 colorBuckets[bucketIdx].transforms.push({
                   pos: new THREE.Vector3(
-                    building.position.x + (w / 2 + 0.01) * side,
-                    building.position.y - h / 2 + row * 0.8 + 0.5,
-                    building.position.z - d / 2 + col * 0.6 + 0.3
+                    bx0 + (w / 2 + 0.01) * side,
+                    -5 + row * 0.8 + 0.5,
+                    bz0 - d / 2 + col * 0.6 + 0.3
                   ),
                   rotY: side > 0 ? Math.PI / 2 : -Math.PI / 2,
                   opacity: 0.4 + Math.random() * 0.6,
@@ -2008,6 +2095,249 @@ export class CyberpunkScene {
     }
   }
 
+  async loadEnvironment() {
+    if (this.envMapLoaded) return;
+    try {
+      const rgbeLoader = new RGBELoader();
+      const hdrTexture = await rgbeLoader.loadAsync("/hdri/shanghai_bund_1k.hdr");
+      this.pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+      this.pmremGenerator.compileEquirectangularShader();
+      const envMap = this.pmremGenerator.fromEquirectangular(hdrTexture).texture;
+      hdrTexture.dispose();
+      this.pmremGenerator.dispose();
+      this.envMapTexture = envMap;
+      this.scene.environment = envMap;
+      this.scene.environmentIntensity = this.qualityConfig.envMap.intensity;
+      this.envMapLoaded = true;
+    } catch {
+      // HDRI load is optional; scene works without it
+    }
+  }
+
+  async loadPBRTextures() {
+    if (this.pbrTexturesLoaded) return;
+    const loader = new THREE.TextureLoader();
+    const loadMap = (path: string, repeat: [number, number]): Promise<THREE.Texture> =>
+      new Promise((resolve, reject) => {
+        loader.load(
+          path,
+          (tex) => {
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(repeat[0], repeat[1]);
+            resolve(tex);
+          },
+          undefined,
+          reject
+        );
+      });
+
+    try {
+      const floorRepeat: [number, number] = [5, 6];
+      const wallRepeat: [number, number] = [4, 2];
+
+      const [fColor, fNormal, fRough, fMetal, wColor, wNormal, wRough, wMetal, wAO] = await Promise.all([
+        loadMap("/textures/floor/Color.jpg", floorRepeat),
+        loadMap("/textures/floor/NormalGL.jpg", floorRepeat),
+        loadMap("/textures/floor/Roughness.jpg", floorRepeat),
+        loadMap("/textures/floor/Metalness.jpg", floorRepeat),
+        loadMap("/textures/wall/Color.jpg", wallRepeat),
+        loadMap("/textures/wall/NormalGL.jpg", wallRepeat),
+        loadMap("/textures/wall/Roughness.jpg", wallRepeat),
+        loadMap("/textures/wall/Metalness.jpg", wallRepeat),
+        loadMap("/textures/wall/AmbientOcclusion.jpg", wallRepeat),
+      ]);
+
+      // Set color maps to sRGB
+      fColor.colorSpace = THREE.SRGBColorSpace;
+      wColor.colorSpace = THREE.SRGBColorSpace;
+
+      this.pbrMaps = {
+        floor: { color: fColor, normal: fNormal, roughness: fRough, metalness: fMetal, ao: null! },
+        wall: { color: wColor, normal: wNormal, roughness: wRough, metalness: wMetal, ao: wAO },
+      };
+
+      // Apply to floor mesh
+      if (this.floorMesh) {
+        const floorMat = this.floorMesh.material as THREE.MeshStandardMaterial;
+        floorMat.map = fColor;
+        floorMat.normalMap = fNormal;
+        floorMat.roughnessMap = fRough;
+        floorMat.metalnessMap = fMetal;
+        floorMat.needsUpdate = true;
+      }
+
+      // Apply to wall meshes
+      for (const wall of this.wallMeshes) {
+        const wallMat = wall.material as THREE.MeshStandardMaterial;
+        wallMat.map = wColor;
+        wallMat.normalMap = wNormal;
+        wallMat.roughnessMap = wRough;
+        wallMat.metalnessMap = wMetal;
+        wallMat.aoMap = wAO;
+        wallMat.needsUpdate = true;
+      }
+
+      this.pbrTexturesLoaded = true;
+
+      // Apply physical materials if tier supports it
+      if (this.qualityConfig.physicalMaterials) {
+        this.applyPhysicalMaterials();
+      }
+    } catch {
+      // PBR load is optional; keep procedural textures
+    }
+  }
+
+  applyPhysicalMaterials() {
+    // Window glass: real glass refraction
+    for (const glass of this.windowGlassMeshes) {
+      const oldMat = glass.material as THREE.Material;
+      const physGlass = new THREE.MeshPhysicalMaterial({
+        color: 0x0a1e3a,
+        transmission: 0.92,
+        ior: 1.5,
+        roughness: 0.05,
+        thickness: 0.5,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      glass.material = physGlass;
+      oldMat.dispose();
+    }
+
+    // Floor: clearcoat polished metal
+    if (this.floorMesh) {
+      const oldFloorMat = this.floorMesh.material as THREE.MeshStandardMaterial;
+      const physFloor = new THREE.MeshPhysicalMaterial({
+        color: oldFloorMat.color,
+        map: oldFloorMat.map,
+        normalMap: oldFloorMat.normalMap,
+        roughnessMap: oldFloorMat.roughnessMap,
+        metalnessMap: oldFloorMat.metalnessMap,
+        aoMap: oldFloorMat.aoMap,
+        roughness: oldFloorMat.roughness,
+        metalness: oldFloorMat.metalness,
+        clearcoat: 0.3,
+        clearcoatRoughness: 0.2,
+      });
+      this.floorMesh.material = physFloor;
+      oldFloorMat.dispose();
+    }
+
+    // Desk: polished dark metal
+    if (this.deskMesh) {
+      const oldDeskMat = this.deskMesh.material as THREE.Material;
+      const physDesk = new THREE.MeshPhysicalMaterial({
+        color: 0x1a1f3a,
+        metalness: 0.8,
+        roughness: 0.1,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.15,
+      });
+      this.deskMesh.material = physDesk;
+      oldDeskMat.dispose();
+    }
+
+    // Couch cushions: fabric sheen
+    for (const cushion of this.couchMeshes) {
+      const oldCushionMat = cushion.material as THREE.Material;
+      const physCushion = new THREE.MeshPhysicalMaterial({
+        color: 0x0e1224,
+        roughness: 0.9,
+        metalness: 0.1,
+        sheen: 1.0,
+        sheenRoughness: 0.8,
+        sheenColor: new THREE.Color(0x7b2fbe),
+      });
+      cushion.material = physCushion;
+      oldCushionMat.dispose();
+    }
+
+    // Neon decorations: iridescence
+    for (const neon of this.neonIridescenceMeshes) {
+      const oldMat = neon.material as THREE.MeshStandardMaterial;
+      const physNeon = new THREE.MeshPhysicalMaterial({
+        color: oldMat.color,
+        emissive: oldMat.emissive,
+        emissiveIntensity: oldMat.emissiveIntensity,
+        toneMapped: oldMat.toneMapped,
+        side: oldMat.side,
+        iridescence: 1.0,
+        iridescenceIOR: 1.5,
+      });
+      neon.material = physNeon;
+      oldMat.dispose();
+    }
+  }
+
+  revertToStandardMaterials() {
+    // Revert glass
+    for (const glass of this.windowGlassMeshes) {
+      const oldMat = glass.material as THREE.Material;
+      glass.material = new THREE.MeshStandardMaterial({
+        color: 0x0a1e3a,
+        transparent: true,
+        opacity: 0.15,
+        roughness: 0.05,
+        metalness: 0.1,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      oldMat.dispose();
+    }
+
+    // Revert floor
+    if (this.floorMesh) {
+      const oldMat = this.floorMesh.material as THREE.Material;
+      this.floorMesh.material = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        map: this.pbrMaps?.floor.color ?? this.proceduralTextures?.floorMap ?? null,
+        roughnessMap: this.pbrMaps?.floor.roughness ?? this.proceduralTextures?.floorRoughness ?? null,
+        roughness: 0.3,
+        metalness: 0.6,
+      });
+      oldMat.dispose();
+    }
+
+    // Revert desk
+    if (this.deskMesh) {
+      const oldMat = this.deskMesh.material as THREE.Material;
+      this.deskMesh.material = new THREE.MeshStandardMaterial({
+        color: 0x1a1f3a,
+        metalness: 0.9,
+        roughness: 0.1,
+      });
+      oldMat.dispose();
+    }
+
+    // Revert couch
+    for (const cushion of this.couchMeshes) {
+      const oldMat = cushion.material as THREE.Material;
+      cushion.material = new THREE.MeshStandardMaterial({
+        color: 0x0e1224,
+        roughness: 0.9,
+        metalness: 0.1,
+      });
+      oldMat.dispose();
+    }
+
+    // Revert neon iridescence
+    for (const neon of this.neonIridescenceMeshes) {
+      const oldMat = neon.material as THREE.MeshStandardMaterial;
+      const stdNeon = new THREE.MeshStandardMaterial({
+        color: oldMat.color,
+        emissive: oldMat.emissive,
+        emissiveIntensity: oldMat.emissiveIntensity,
+        toneMapped: oldMat.toneMapped,
+        side: oldMat.side,
+      });
+      neon.material = stdNeon;
+      oldMat.dispose();
+    }
+  }
+
   animate = () => {
     this.animationId = requestAnimationFrame(this.animate);
     this.update();
@@ -2055,6 +2385,43 @@ export class CyberpunkScene {
     const h = this.container.clientHeight;
     this.composer?.setSize(w, h);
 
+    // HDRI environment map gating
+    if (this.qualityConfig.envMap.enabled) {
+      if (!this.envMapLoaded) {
+        this.loadEnvironment();
+      } else if (this.envMapTexture) {
+        this.scene.environment = this.envMapTexture;
+        this.scene.environmentIntensity = this.qualityConfig.envMap.intensity;
+      }
+    } else {
+      this.scene.environment = null;
+    }
+
+    // PBR textures gating
+    if (this.qualityConfig.pbrTextures) {
+      if (!this.pbrTexturesLoaded) {
+        this.loadPBRTextures();
+      }
+    } else if (this.pbrTexturesLoaded && this.floorMesh) {
+      // Revert to procedural textures
+      const floorMat = this.floorMesh.material as THREE.MeshStandardMaterial;
+      if (this.proceduralTextures) {
+        floorMat.map = this.proceduralTextures.floorMap;
+        floorMat.roughnessMap = this.proceduralTextures.floorRoughness;
+        floorMat.normalMap = null;
+        floorMat.metalnessMap = null;
+        floorMat.aoMap = null;
+        floorMat.needsUpdate = true;
+      }
+    }
+
+    // Physical materials gating
+    if (this.qualityConfig.physicalMaterials) {
+      this.applyPhysicalMaterials();
+    } else {
+      this.revertToStandardMaterials();
+    }
+
     this.onQualityChange?.(tier);
   }
 
@@ -2097,6 +2464,22 @@ export class CyberpunkScene {
       this.proceduralTextures.floorMap.dispose();
       this.proceduralTextures.floorRoughness.dispose();
       this.proceduralTextures.ceilingMap.dispose();
+    }
+
+    // Dispose HDRI environment map
+    if (this.envMapTexture) {
+      this.envMapTexture.dispose();
+    }
+
+    // Dispose PBR textures
+    if (this.pbrMaps) {
+      for (const set of [this.pbrMaps.floor, this.pbrMaps.wall]) {
+        set.color.dispose();
+        set.normal.dispose();
+        set.roughness.dispose();
+        set.metalness.dispose();
+        set.ao?.dispose();
+      }
     }
 
     this.assetLoader.dispose();

@@ -10,6 +10,9 @@ export interface QualityConfig {
   cityLightFlicker: boolean;
   toneMapping: { exposure: number };
   photoMode: boolean;
+  envMap: { enabled: boolean; intensity: number };
+  pbrTextures: boolean;
+  physicalMaterials: boolean;
 }
 
 const ULTRA: QualityConfig = {
@@ -22,6 +25,9 @@ const ULTRA: QualityConfig = {
   cityLightFlicker: true,
   toneMapping: { exposure: 1.3 },
   photoMode: false,
+  envMap: { enabled: true, intensity: 1.0 },
+  pbrTextures: true,
+  physicalMaterials: true,
 };
 
 const HIGH: QualityConfig = {
@@ -34,6 +40,9 @@ const HIGH: QualityConfig = {
   cityLightFlicker: true,
   toneMapping: { exposure: 1.2 },
   photoMode: false,
+  envMap: { enabled: true, intensity: 0.6 },
+  pbrTextures: true,
+  physicalMaterials: false,
 };
 
 const LOW: QualityConfig = {
@@ -46,6 +55,9 @@ const LOW: QualityConfig = {
   cityLightFlicker: false,
   toneMapping: { exposure: 1.15 },
   photoMode: false,
+  envMap: { enabled: false, intensity: 0 },
+  pbrTextures: false,
+  physicalMaterials: false,
 };
 
 export const PHOTO_MODE_CONFIG: QualityConfig = {
@@ -54,6 +66,9 @@ export const PHOTO_MODE_CONFIG: QualityConfig = {
   bloom: { enabled: true, strength: 0.7, radius: 0.4, threshold: 0.3 },
   vignette: { enabled: true, darkness: 0.6, offset: 0.9 },
   photoMode: true,
+  envMap: { enabled: true, intensity: 1.2 },
+  pbrTextures: true,
+  physicalMaterials: true,
 };
 
 export const QUALITY_PRESETS: Record<QualityTier, QualityConfig> = {
