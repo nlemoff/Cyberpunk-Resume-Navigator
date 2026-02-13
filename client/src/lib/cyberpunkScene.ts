@@ -5,6 +5,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { OutlinePass } from "three/examples/jsm/postprocessing/OutlinePass.js";
 import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
 import { type QualityConfig, type QualityTier, QUALITY_PRESETS, PHOTO_MODE_CONFIG, getInitialQuality } from "./qualitySettings";
 import { resumeData } from "./resumeData";
@@ -97,6 +98,12 @@ export class CyberpunkScene {
   deskMesh?: THREE.Mesh;
   couchMeshes: THREE.Mesh[] = [];
   neonIridescenceMeshes: THREE.Mesh[] = [];
+  outlinePass?: OutlinePass;
+  outlinedObjects: THREE.Object3D[] = [];
+  gradientMap3!: THREE.DataTexture;
+  gradientMap5!: THREE.DataTexture;
+  stationAnimMeshes: THREE.Mesh[] = [];
+  decorationGroup: THREE.Group | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -132,6 +139,7 @@ export class CyberpunkScene {
     this.renderer.shadowMap.enabled = this.qualityConfig.shadows.enabled;
 
     container.appendChild(this.renderer.domElement);
+    this.createGradientMaps();
     this.setupPostProcessing();
 
     this.assetLoader = new AssetLoader({ renderer: this.renderer });
@@ -142,8 +150,16 @@ export class CyberpunkScene {
     this.buildCityscape();
     this.buildResumeStations();
     this.addAtmosphericEffects();
+    if (this.qualityConfig.interiorDecoration) {
+      this.addInteriorDecorations();
+    }
     this.setupControls();
     this.loadSampleGLB();
+
+    // Collect outlined objects after scene is fully built
+    if (this.outlinePass) {
+      this.collectOutlinedObjects();
+    }
 
     // Lazy-load HDRI and PBR textures based on quality tier
     if (this.qualityConfig.envMap.enabled) {
@@ -156,6 +172,46 @@ export class CyberpunkScene {
     window.addEventListener("resize", this.onResize);
   }
 
+  createGradientMaps() {
+    // 3-step sharp anime look for walls, floor, furniture
+    const data3 = new Uint8Array([40, 120, 255]);
+    this.gradientMap3 = new THREE.DataTexture(data3, 3, 1, THREE.RedFormat);
+    this.gradientMap3.minFilter = THREE.NearestFilter;
+    this.gradientMap3.magFilter = THREE.NearestFilter;
+    this.gradientMap3.needsUpdate = true;
+
+    // 5-step slightly smoother for buildings
+    const data5 = new Uint8Array([30, 70, 120, 180, 255]);
+    this.gradientMap5 = new THREE.DataTexture(data5, 5, 1, THREE.RedFormat);
+    this.gradientMap5.minFilter = THREE.NearestFilter;
+    this.gradientMap5.magFilter = THREE.NearestFilter;
+    this.gradientMap5.needsUpdate = true;
+  }
+
+  makeToonMaterial(params: {
+    color: number;
+    map?: THREE.Texture | null;
+    side?: THREE.Side;
+    gradientSteps?: 3 | 5;
+  }): THREE.MeshToonMaterial | THREE.MeshStandardMaterial {
+    if (this.qualityConfig.toonShading) {
+      const gradMap = params.gradientSteps === 5 ? this.gradientMap5 : this.gradientMap3;
+      return new THREE.MeshToonMaterial({
+        color: params.color,
+        map: params.map ?? undefined,
+        gradientMap: gradMap,
+        side: params.side ?? THREE.FrontSide,
+      });
+    }
+    return new THREE.MeshStandardMaterial({
+      color: params.color,
+      map: params.map ?? undefined,
+      roughness: 0.7,
+      metalness: 0.3,
+      side: params.side ?? THREE.FrontSide,
+    });
+  }
+
   setupPostProcessing() {
     const w = this.container.clientWidth;
     const h = this.container.clientHeight;
@@ -165,6 +221,21 @@ export class CyberpunkScene {
 
     const renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(renderPass);
+
+    // OutlinePass: after RenderPass, before BloomPass so outlines glow
+    if (this.qualityConfig.outlinePass.enabled) {
+      this.outlinePass = new OutlinePass(
+        new THREE.Vector2(w, h),
+        this.scene,
+        this.camera
+      );
+      this.outlinePass.edgeStrength = this.qualityConfig.outlinePass.edgeStrength;
+      this.outlinePass.edgeThickness = this.qualityConfig.outlinePass.edgeThickness;
+      this.outlinePass.edgeGlow = 0.5;
+      this.outlinePass.visibleEdgeColor.set(0x05d9e8);
+      this.outlinePass.hiddenEdgeColor.set(0x050815);
+      this.composer.addPass(this.outlinePass);
+    }
 
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(w, h),
@@ -365,14 +436,11 @@ export class CyberpunkScene {
     const roomDepth = 24;
     const roomHeight = 4;
 
-    // Phase 2: Floor with procedural texture (replaces flat color + GridHelper)
+    // Floor with procedural texture + toon shading
     const floorGeo = new THREE.PlaneGeometry(roomWidth, roomDepth);
-    const floorMat = new THREE.MeshStandardMaterial({
+    const floorMat = this.makeToonMaterial({
       color: 0xffffff,
       map: this.proceduralTextures!.floorMap,
-      roughnessMap: this.proceduralTextures!.floorRoughness,
-      roughness: 0.3,
-      metalness: 0.6,
     });
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2;
@@ -380,20 +448,18 @@ export class CyberpunkScene {
     this.scene.add(floor);
     this.floorMesh = floor;
 
-    // Phase 2: Ceiling with procedural texture
+    // Ceiling with procedural texture + toon shading
     const ceilingGeo = new THREE.PlaneGeometry(roomWidth, roomDepth);
-    const ceilingMat = new THREE.MeshStandardMaterial({
+    const ceilingMat = this.makeToonMaterial({
       color: 0xffffff,
       map: this.proceduralTextures!.ceilingMap,
-      roughness: 0.8,
-      metalness: 0.2,
     });
     const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.y = roomHeight;
     this.scene.add(ceiling);
 
-    // Phase 2: Wall materials with procedural panel texture (per-wall repeat)
+    // Wall materials with procedural panel texture + toon shading
     const makeWallTex = (rx: number, ry: number) => {
       const t = new THREE.CanvasTexture(this.proceduralTextures!.wallCanvas);
       t.wrapS = THREE.RepeatWrapping;
@@ -401,11 +467,9 @@ export class CyberpunkScene {
       t.repeat.set(rx, ry);
       return t;
     };
-    const makeWallMat = (rx: number, ry: number) => new THREE.MeshStandardMaterial({
+    const makeWallMat = (rx: number, ry: number) => this.makeToonMaterial({
       color: 0xffffff,
       map: makeWallTex(rx, ry),
-      roughness: 0.7,
-      metalness: 0.3,
       side: THREE.DoubleSide,
     });
 
@@ -435,10 +499,8 @@ export class CyberpunkScene {
     this.scene.add(frontWallRight);
     this.wallMeshes.push(frontWallRight);
 
-    const plainWallMat = new THREE.MeshStandardMaterial({
+    const plainWallMat = this.makeToonMaterial({
       color: COLORS.wallDark,
-      roughness: 0.7,
-      metalness: 0.3,
       side: THREE.DoubleSide,
     });
     const frontWallTop = new THREE.Mesh(
@@ -570,21 +632,9 @@ export class CyberpunkScene {
   }
 
   addFurniture() {
-    const metalMat = new THREE.MeshStandardMaterial({
-      color: 0x1a1f3a,
-      metalness: 0.9,
-      roughness: 0.1,
-    });
-    const darkMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0e1a,
-      roughness: 0.8,
-      metalness: 0.2,
-    });
-    const kitchenMat = new THREE.MeshStandardMaterial({
-      color: 0x151830,
-      metalness: 0.7,
-      roughness: 0.2,
-    });
+    const metalMat = this.makeToonMaterial({ color: 0x1a1f3a });
+    const darkMat = this.makeToonMaterial({ color: 0x0a0e1a });
+    const kitchenMat = this.makeToonMaterial({ color: 0x151830 });
 
     // Desk
     const deskTop = new THREE.Mesh(new THREE.BoxGeometry(3, 0.08, 1.2), metalMat);
@@ -1189,14 +1239,22 @@ export class CyberpunkScene {
     const SPACING = BLOCK_SIZE + STREET_WIDTH;
     const EXTENT = 5;
 
-    const buildingColors = [0x0c1225, 0x101830, 0x0e1420];
-    const buildingMats = buildingColors.map(c => new THREE.MeshStandardMaterial({
-      color: c,
-      roughness: 0.7,
-      metalness: 0.4,
-      emissive: c,
-      emissiveIntensity: 0.15,
-    }));
+    const buildingColors = [0x0c1225, 0x101830, 0x0e1420, 0x0a1530, 0x121528, 0x0d0f22];
+    const buildingMats = buildingColors.map(c => {
+      if (this.qualityConfig.toonShading) {
+        return new THREE.MeshToonMaterial({
+          color: c,
+          gradientMap: this.gradientMap5,
+        });
+      }
+      return new THREE.MeshStandardMaterial({
+        color: c,
+        roughness: 0.7,
+        metalness: 0.4,
+        emissive: c,
+        emissiveIntensity: 0.15,
+      });
+    });
 
     const windowGeo = new THREE.PlaneGeometry(0.3, 0.4);
     const colorBuckets: { color: number; transforms: { pos: THREE.Vector3; rotY: number; opacity: number }[] }[] = [
@@ -1232,40 +1290,70 @@ export class CyberpunkScene {
           const bx0 = cx + ox;
           const bz0 = cz + oz;
 
+          // L-shaped buildings: ~15% chance for wide+deep buildings
+          const isLShape = w > 4 && d > 4 && Math.random() < 0.15;
+
           if (h > 25) {
             // Tall building: two setbacks (base, mid, top)
-            const baseH = h * 0.45;
-            const midH = h * 0.35;
-            const topH = h * 0.2;
+            const baseH2 = h * 0.45;
+            const midH2 = h * 0.35;
+            const topH2 = h * 0.2;
             const midW = w * 0.75;
             const midD = d * 0.75;
             const topW = w * 0.55;
             const topD = d * 0.55;
 
-            const base = new THREE.Mesh(new THREE.BoxGeometry(w, baseH, d), bMat);
-            base.position.set(bx0, baseH / 2 - 5, bz0);
+            const base = new THREE.Mesh(new THREE.BoxGeometry(w, baseH2, d), bMat);
+            base.position.set(bx0, baseH2 / 2 - 5, bz0);
             cityGroup.add(base);
 
-            const mid = new THREE.Mesh(new THREE.BoxGeometry(midW, midH, midD), bMat);
-            mid.position.set(bx0, baseH + midH / 2 - 5, bz0);
+            // Ledge at base→mid transition
+            if (this.qualityConfig.rooftopDetails) {
+              const ledge1 = new THREE.Mesh(
+                new THREE.BoxGeometry(w + 0.3, 0.08, d + 0.3), bMat
+              );
+              ledge1.position.set(bx0, baseH2 - 5, bz0);
+              cityGroup.add(ledge1);
+            }
+
+            const mid = new THREE.Mesh(new THREE.BoxGeometry(midW, midH2, midD), bMat);
+            mid.position.set(bx0, baseH2 + midH2 / 2 - 5, bz0);
             cityGroup.add(mid);
 
-            const top = new THREE.Mesh(new THREE.BoxGeometry(topW, topH, topD), bMat);
-            top.position.set(bx0, baseH + midH + topH / 2 - 5, bz0);
+            // Ledge at mid→top transition
+            if (this.qualityConfig.rooftopDetails) {
+              const ledge2 = new THREE.Mesh(
+                new THREE.BoxGeometry(midW + 0.3, 0.08, midD + 0.3), bMat
+              );
+              ledge2.position.set(bx0, baseH2 + midH2 - 5, bz0);
+              cityGroup.add(ledge2);
+            }
+
+            const top = new THREE.Mesh(new THREE.BoxGeometry(topW, topH2, topD), bMat);
+            top.position.set(bx0, baseH2 + midH2 + topH2 / 2 - 5, bz0);
             cityGroup.add(top);
           } else if (h > 15) {
             // Medium building: one setback (base + top)
-            const baseH = h * 0.6;
-            const topH = h * 0.4;
+            const baseH2 = h * 0.6;
+            const topH2 = h * 0.4;
             const topW = w * 0.7;
             const topD = d * 0.7;
 
-            const base = new THREE.Mesh(new THREE.BoxGeometry(w, baseH, d), bMat);
-            base.position.set(bx0, baseH / 2 - 5, bz0);
+            const base = new THREE.Mesh(new THREE.BoxGeometry(w, baseH2, d), bMat);
+            base.position.set(bx0, baseH2 / 2 - 5, bz0);
             cityGroup.add(base);
 
-            const top = new THREE.Mesh(new THREE.BoxGeometry(topW, topH, topD), bMat);
-            top.position.set(bx0, baseH + topH / 2 - 5, bz0);
+            // Ledge at setback
+            if (this.qualityConfig.rooftopDetails) {
+              const ledge = new THREE.Mesh(
+                new THREE.BoxGeometry(w + 0.3, 0.08, d + 0.3), bMat
+              );
+              ledge.position.set(bx0, baseH2 - 5, bz0);
+              cityGroup.add(ledge);
+            }
+
+            const top = new THREE.Mesh(new THREE.BoxGeometry(topW, topH2, topD), bMat);
+            top.position.set(bx0, baseH2 + topH2 / 2 - 5, bz0);
             cityGroup.add(top);
           } else {
             // Short building: single box
@@ -1273,9 +1361,52 @@ export class CyberpunkScene {
             building.position.set(bx0, h / 2 - 5, bz0);
             cityGroup.add(building);
           }
+
+          // L-shape wing
+          if (isLShape) {
+            const wingW = w * 0.5;
+            const wingD = d * 0.6;
+            const wingH = h * 0.7;
+            const wing = new THREE.Mesh(new THREE.BoxGeometry(wingW, wingH, wingD), bMat);
+            wing.position.set(bx0 + w * 0.4, wingH / 2 - 5, bz0 + d * 0.3);
+            cityGroup.add(wing);
+          }
+
           totalBuildings++;
 
           const buildingTopY = h - 5;
+
+          // Rooftop details (gated by quality)
+          if (this.qualityConfig.rooftopDetails) {
+            // AC unit on ~40% of buildings > 15 units
+            if (h > 15 && Math.random() < 0.4) {
+              const ac = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 0.4, 0.6),
+                bMat
+              );
+              ac.position.set(bx0 + (Math.random() - 0.5) * w * 0.4, buildingTopY + 0.2, bz0 + (Math.random() - 0.5) * d * 0.4);
+              cityGroup.add(ac);
+            }
+            // Water tank on ~30% of buildings > 20 units
+            if (h > 20 && Math.random() < 0.3) {
+              const tankMat = bMat;
+              const tank = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.4, 0.4, 0.8, 8),
+                tankMat
+              );
+              tank.position.set(bx0, buildingTopY + 0.7, bz0);
+              cityGroup.add(tank);
+              // Tank legs
+              for (const [lx, lz] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]]) {
+                const leg = new THREE.Mesh(
+                  new THREE.CylinderGeometry(0.03, 0.03, 0.3, 4),
+                  tankMat
+                );
+                leg.position.set(bx0 + lx, buildingTopY + 0.15, bz0 + lz);
+                cityGroup.add(leg);
+              }
+            }
+          }
 
           // Spires/antennas on ~20% of tall buildings
           if (h > 12 && Math.random() < 0.2) {
@@ -1539,42 +1670,337 @@ export class CyberpunkScene {
   }
 
   buildResumeStations() {
-    this.createStation(
-      new THREE.Vector3(0, 0, -10),
-      "experience",
-      "EXPERIENCE",
-      COLORS.hotPink
-    );
-
-    this.createStation(
-      new THREE.Vector3(-7, 0, -4),
-      "skills",
-      "SKILLS",
-      COLORS.cyan
-    );
-
-    this.createStation(
-      new THREE.Vector3(-5, 0, 8),
-      "projects",
-      "PROJECTS",
-      COLORS.amber
-    );
-
-    this.createStation(
-      new THREE.Vector3(7, 0, 4),
-      "education",
-      "EDUCATION",
-      COLORS.purple
-    );
-
-    this.createStation(
-      new THREE.Vector3(3, 0, -6),
-      "about",
-      "ABOUT",
-      COLORS.electricWhite
-    );
-
+    this.buildExperienceStation(new THREE.Vector3(0, 0, -10));
+    this.buildSkillsStation(new THREE.Vector3(-7, 0, -4));
+    this.buildProjectsStation(new THREE.Vector3(-5, 0, 8));
+    this.buildEducationStation(new THREE.Vector3(7, 0, 4));
+    this.buildAboutStation(new THREE.Vector3(3, 0, -6));
     this.addHolographicLabels();
+  }
+
+  // Shared base pad + emissive ring for all stations
+  private createStationBase(group: THREE.Group, color: number) {
+    const basePadGeo = new THREE.CylinderGeometry(1.2, 1.3, 0.08, 6);
+    const basePadMat = this.makeToonMaterial({ color: 0x0a0e1a });
+    const basePad = new THREE.Mesh(basePadGeo, basePadMat);
+    basePad.position.y = 0.04;
+    group.add(basePad);
+
+    const ringGeo = new THREE.RingGeometry(1.1, 1.3, 6);
+    const ringMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: color,
+      emissiveIntensity: 2.5,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.09;
+    group.add(ring);
+    this.neonMeshes.push(ring);
+  }
+
+  // Experience (hot pink) — Holographic Computer Terminal
+  buildExperienceStation(position: THREE.Vector3) {
+    const group = new THREE.Group();
+    group.position.copy(position);
+    this.createStationBase(group, COLORS.hotPink);
+
+    const deskMat = this.makeToonMaterial({ color: 0x0d1025 });
+    // Desk surface on two cylindrical legs
+    const deskTop = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.06, 0.7), deskMat);
+    deskTop.position.set(0, 0.7, 0);
+    group.add(deskTop);
+    for (const x of [-0.5, 0.5]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.7, 8), deskMat);
+      leg.position.set(x, 0.35, 0);
+      group.add(leg);
+    }
+
+    // Main screen tilted back
+    const screenMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.hotPink,
+      emissiveIntensity: 1.5,
+      toneMapped: false,
+    });
+    const mainScreen = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.7, 0.03), screenMat);
+    mainScreen.position.set(0, 1.2, -0.2);
+    mainScreen.rotation.x = -0.15;
+    group.add(mainScreen);
+    this.hologramMeshes.push(mainScreen);
+
+    // Side screen angled inward
+    const sideScreen = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.03), screenMat);
+    sideScreen.position.set(0.8, 1.1, -0.1);
+    sideScreen.rotation.y = -0.4;
+    group.add(sideScreen);
+    this.hologramMeshes.push(sideScreen);
+
+    // Keyboard on desk
+    const keyboard = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.02, 0.25), deskMat);
+    keyboard.position.set(0, 0.74, 0.15);
+    group.add(keyboard);
+
+    // Vertical data stream beam above
+    const beamMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.hotPink,
+      emissiveIntensity: 1.5,
+      transparent: true,
+      opacity: 0.3,
+      toneMapped: false,
+    });
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2, 8), beamMat);
+    beam.position.set(0, 2.2, -0.2);
+    group.add(beam);
+    this.hologramMeshes.push(beam);
+
+    this.scene.add(group);
+  }
+
+  // Skills (cyan) — Neural Interface Column
+  buildSkillsStation(position: THREE.Vector3) {
+    const group = new THREE.Group();
+    group.position.copy(position);
+    this.createStationBase(group, COLORS.cyan);
+
+    // Central hexagonal pillar
+    const pillarMat = this.makeToonMaterial({ color: 0x0d1025 });
+    const pillar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.2, 0.2, 2.5, 6),
+      pillarMat
+    );
+    pillar.position.y = 1.35;
+    group.add(pillar);
+
+    // 3 rotating torus rings at different heights
+    const ringMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.cyan,
+      emissiveIntensity: 2.0,
+      toneMapped: false,
+    });
+    const ringHeights = [0.8, 1.5, 2.2];
+    const ringRadii = [0.5, 0.6, 0.45];
+    const ringSpeeds = [0.8, -1.2, 0.5];
+    ringHeights.forEach((y, i) => {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(ringRadii[i], 0.02, 8, 24),
+        ringMat
+      );
+      ring.position.y = y;
+      ring.rotation.x = Math.PI / 2 + (i * 0.3);
+      ring.userData.animationType = "skillRing";
+      ring.userData.rotationSpeed = ringSpeeds[i];
+      group.add(ring);
+      this.neonMeshes.push(ring);
+      this.stationAnimMeshes.push(ring);
+    });
+
+    // 6 orbiting skill icon octahedrons
+    for (let i = 0; i < 6; i++) {
+      const icon = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.08, 0),
+        ringMat
+      );
+      const angle = (i / 6) * Math.PI * 2;
+      icon.position.set(Math.cos(angle) * 0.8, 1.5, Math.sin(angle) * 0.8);
+      icon.userData.animationType = "skillOrbit";
+      icon.userData.orbitIndex = i;
+      group.add(icon);
+      this.stationAnimMeshes.push(icon);
+    }
+
+    // Glowing icosahedron cap at top
+    const cap = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.18, 0),
+      ringMat
+    );
+    cap.position.y = 2.8;
+    group.add(cap);
+    this.hologramMeshes.push(cap);
+
+    this.scene.add(group);
+  }
+
+  // Projects (amber) — Workshop Bench
+  buildProjectsStation(position: THREE.Vector3) {
+    const group = new THREE.Group();
+    group.position.copy(position);
+    this.createStationBase(group, COLORS.amber);
+
+    const benchMat = this.makeToonMaterial({ color: 0x1a1510 });
+    // Workbench table on 4 legs
+    const benchTop = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.9), benchMat);
+    benchTop.position.set(0, 0.75, 0);
+    group.add(benchTop);
+    for (const [x, z] of [[-0.7, -0.35], [0.7, -0.35], [-0.7, 0.35], [0.7, 0.35]]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.75, 0.06), benchMat);
+      leg.position.set(x, 0.375, z);
+      group.add(leg);
+    }
+
+    // Tool: wrench (cylinder)
+    const toolMat = this.makeToonMaterial({ color: 0x2a2a2a });
+    const wrench = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.4, 6), toolMat);
+    wrench.position.set(-0.4, 0.8, 0.1);
+    wrench.rotation.z = Math.PI / 2;
+    group.add(wrench);
+
+    // Tool: soldering iron (cone)
+    const iron = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.35, 6), toolMat);
+    iron.position.set(0.3, 0.85, -0.1);
+    iron.rotation.z = Math.PI / 3;
+    group.add(iron);
+
+    // Hovering drone: box body + 4 disk propellers
+    const droneMat = this.makeToonMaterial({ color: 0x1a1f3a });
+    const droneBody = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.2), droneMat);
+    droneBody.position.set(0, 1.8, 0);
+    droneBody.userData.animationType = "droneBob";
+    group.add(droneBody);
+    this.stationAnimMeshes.push(droneBody);
+
+    const propMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.amber,
+      emissiveIntensity: 1.5,
+      toneMapped: false,
+    });
+    for (const [x, z] of [[-0.2, -0.15], [0.2, -0.15], [-0.2, 0.15], [0.2, 0.15]]) {
+      const prop = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.01, 12), propMat);
+      prop.position.set(x, 1.87, z);
+      group.add(prop);
+    }
+
+    // Spark effect point light
+    const sparkLight = new THREE.PointLight(COLORS.amber, 0.5, 3);
+    sparkLight.position.set(0, 1.0, 0);
+    group.add(sparkLight);
+
+    this.scene.add(group);
+  }
+
+  // Education (purple) — Data Archive Bookshelf
+  buildEducationStation(position: THREE.Vector3) {
+    const group = new THREE.Group();
+    group.position.copy(position);
+    this.createStationBase(group, COLORS.purple);
+
+    const shelfMat = this.makeToonMaterial({ color: 0x151830 });
+    // Shelf frame: two side panels + 4 horizontal shelves
+    for (const x of [-0.6, 0.6]) {
+      const sidePanel = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.0, 0.5), shelfMat);
+      sidePanel.position.set(x, 1.1, 0);
+      group.add(sidePanel);
+    }
+    for (let i = 0; i < 4; i++) {
+      const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.04, 0.5), shelfMat);
+      shelf.position.set(0, 0.3 + i * 0.5, 0);
+      group.add(shelf);
+    }
+
+    // Data tablets on each shelf — thin glowing boxes
+    const tabletColors = [0x7b2fbe, 0x9b4fde, 0x5b1f9e, 0x8b3fce];
+    for (let shelf = 0; shelf < 4; shelf++) {
+      for (let t = 0; t < 3; t++) {
+        const tablet = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 0.3, 0.35),
+          new THREE.MeshStandardMaterial({
+            color: 0x000000,
+            emissive: tabletColors[(shelf + t) % tabletColors.length],
+            emissiveIntensity: 0.8 + Math.random() * 0.6,
+          })
+        );
+        tablet.position.set(-0.35 + t * 0.35, 0.48 + shelf * 0.5, 0);
+        group.add(tablet);
+      }
+    }
+
+    // Holographic text plane floating above
+    const holoMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.purple,
+      emissiveIntensity: 1.5,
+      transparent: true,
+      opacity: 0.6,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    });
+    const holoPlane = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.4), holoMat);
+    holoPlane.position.set(0, 2.5, 0);
+    group.add(holoPlane);
+    this.hologramMeshes.push(holoPlane);
+
+    this.scene.add(group);
+  }
+
+  // About (electric white) — Personal ID Terminal
+  buildAboutStation(position: THREE.Vector3) {
+    const group = new THREE.Group();
+    group.position.copy(position);
+    this.createStationBase(group, COLORS.electricWhite);
+
+    const frameMat = this.makeToonMaterial({ color: 0x1a1d30 });
+    // Standing frame: two posts + crossbar
+    for (const x of [-0.5, 0.5]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.2, 0.06), frameMat);
+      post.position.set(x, 1.2, 0);
+      group.add(post);
+    }
+    const crossbar = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.06, 0.06), frameMat);
+    crossbar.position.set(0, 2.3, 0);
+    group.add(crossbar);
+
+    // Glowing mirror/screen surface
+    const screenMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.electricWhite,
+      emissiveIntensity: 1.0,
+      toneMapped: false,
+      transparent: true,
+      opacity: 0.7,
+    });
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.6), screenMat);
+    screen.position.set(0, 1.2, 0.02);
+    group.add(screen);
+    this.hologramMeshes.push(screen);
+
+    // Portrait silhouette: sphere head + box body
+    const portraitMat = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: COLORS.electricWhite,
+      emissiveIntensity: 0.6,
+    });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), portraitMat);
+    head.position.set(0, 1.7, 0.04);
+    head.userData.animationType = "portraitPulse";
+    group.add(head);
+    this.stationAnimMeshes.push(head);
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.05), portraitMat);
+    body.position.set(0, 1.3, 0.04);
+    group.add(body);
+
+    // 3 horizontal data readout bars
+    for (let i = 0; i < 3; i++) {
+      const bar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.6, 0.04, 0.02),
+        new THREE.MeshStandardMaterial({
+          color: 0x000000,
+          emissive: COLORS.electricWhite,
+          emissiveIntensity: 1.2,
+          toneMapped: false,
+        })
+      );
+      bar.position.set(0, 0.5 + i * 0.15, 0.03);
+      group.add(bar);
+      this.neonMeshes.push(bar);
+    }
+
+    this.scene.add(group);
   }
 
   addHolographicLabels() {
@@ -1625,69 +2051,212 @@ export class CyberpunkScene {
     });
   }
 
-  createStation(
-    position: THREE.Vector3,
-    _type: string,
-    _label: string,
-    color: number
-  ) {
-    const group = new THREE.Group();
-    group.position.copy(position);
 
-    const basePadGeo = new THREE.CylinderGeometry(1.2, 1.3, 0.08, 6);
-    const basePadMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0e1a,
-      metalness: 0.9,
-      roughness: 0.1,
+  collectOutlinedObjects() {
+    this.outlinedObjects = [];
+    this.scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      const mat = obj.material as THREE.Material;
+      // Skip transparent, emissive-only, and particle/sprite objects
+      if (mat instanceof THREE.MeshBasicMaterial) return;
+      if (mat instanceof THREE.PointsMaterial) return;
+      if ((mat as THREE.MeshStandardMaterial).transparent && (mat as THREE.MeshStandardMaterial).opacity < 0.5) return;
+      if ((mat as THREE.MeshStandardMaterial).toneMapped === false) return;
+      // Skip cityscape objects (too many, perf hit) — they're in groups at y < -3
+      if (obj.position.y < -3 && obj.parent !== this.scene) return;
+      // Only collect interior-level objects
+      if (obj.position.y >= -1 && obj.position.y <= 5) {
+        this.outlinedObjects.push(obj);
+      }
     });
-    const basePad = new THREE.Mesh(basePadGeo, basePadMat);
-    basePad.position.y = 0.04;
-    group.add(basePad);
-
-    const ringGeo = new THREE.RingGeometry(1.1, 1.3, 6);
-    const ringMat = new THREE.MeshStandardMaterial({
-      color: 0x000000,
-      emissive: color,
-      emissiveIntensity: 2.5,
-      toneMapped: false,
-      side: THREE.DoubleSide,
-    });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.09;
-    group.add(ring);
-    this.neonMeshes.push(ring);
-
-    const beamGeo = new THREE.CylinderGeometry(0.02, 0.02, 3, 8);
-    const beamMat = new THREE.MeshStandardMaterial({
-      color: 0x000000,
-      emissive: color,
-      emissiveIntensity: 1.5,
-      transparent: true,
-      opacity: 0.3,
-      toneMapped: false,
-    });
-    const beam = new THREE.Mesh(beamGeo, beamMat);
-    beam.position.y = 1.5;
-    group.add(beam);
-    this.hologramMeshes.push(beam);
-
-    const iconGeo = new THREE.OctahedronGeometry(0.25, 0);
-    const iconMat = new THREE.MeshStandardMaterial({
-      color: 0x000000,
-      emissive: color,
-      emissiveIntensity: 2.0,
-      toneMapped: false,
-    });
-    const icon = new THREE.Mesh(iconGeo, iconMat);
-    icon.position.y = 2.5;
-    group.add(icon);
-    this.hologramMeshes.push(icon);
-
-    this.scene.add(group);
+    if (this.outlinePass) {
+      this.outlinePass.selectedObjects = this.outlinedObjects;
+    }
   }
 
-  // Phase 7: Atmospheric effects — larger particles, blue-tinted rain
+  addInteriorDecorations() {
+    this.decorationGroup = new THREE.Group();
+
+    // Ceiling pipes & ducts
+    const pipeMat = this.makeToonMaterial({ color: 0x1a1d30 });
+    for (let i = -1; i <= 1; i++) {
+      const pipe = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.06, 0.06, 20, 8),
+        pipeMat
+      );
+      pipe.position.set(3 + i * 2, 3.8, 0);
+      pipe.rotation.x = Math.PI / 2;
+      this.decorationGroup!.add(pipe);
+
+      // Cross-connectors every 6 units
+      for (let z = -9; z <= 9; z += 6) {
+        const connector = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.04, 0.04, 0.3, 6),
+          pipeMat
+        );
+        connector.position.set(3 + i * 2, 3.8, z);
+        this.decorationGroup!.add(connector);
+      }
+    }
+
+    // Perpendicular rectangular ducts along X
+    const ductMat = this.makeToonMaterial({ color: 0x151828 });
+    for (let z of [-4, 6]) {
+      const duct = new THREE.Mesh(
+        new THREE.BoxGeometry(18, 0.25, 0.4),
+        ductMat
+      );
+      duct.position.set(0, 3.85, z);
+      this.decorationGroup!.add(duct);
+    }
+
+    // Wall art posters with toon-shaded frames
+    const posterData = [
+      { pos: [-2, 2.2, -11.74] as [number, number, number], w: 1.2, h: 0.8, color: 0x05d9e8 },
+      { pos: [4, 2.5, -11.74] as [number, number, number], w: 1.0, h: 1.2, color: 0xff2a6d },
+      { pos: [9.74, 2.3, -7] as [number, number, number], w: 1.0, h: 0.8, color: 0x7b2fbe, rotY: -Math.PI / 2 },
+    ];
+    posterData.forEach(({ pos, w, h, color, rotY }) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 128;
+      canvas.height = 128;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#060810";
+      ctx.fillRect(0, 0, 128, 128);
+      const c = new THREE.Color(color);
+      const hex = `#${c.getHexString()}`;
+      ctx.strokeStyle = hex;
+      ctx.lineWidth = 2;
+      // Abstract neon line pattern
+      for (let i = 0; i < 6; i++) {
+        ctx.beginPath();
+        ctx.moveTo(10 + Math.random() * 30, 10 + i * 20);
+        ctx.lineTo(88 + Math.random() * 30, 15 + i * 20);
+        ctx.stroke();
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      const poster = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ map: tex })
+      );
+      poster.position.set(...pos);
+      if (rotY) poster.rotation.y = rotY;
+      this.decorationGroup!.add(poster);
+
+      // Frame
+      const frameMat = this.makeToonMaterial({ color: 0x1a1d30 });
+      const frameT = new THREE.Mesh(new THREE.BoxGeometry(w + 0.08, 0.04, 0.02), frameMat);
+      frameT.position.set(pos[0], pos[1] + h / 2, pos[2] + 0.01);
+      if (rotY) frameT.rotation.y = rotY;
+      this.decorationGroup!.add(frameT);
+      const frameB = new THREE.Mesh(new THREE.BoxGeometry(w + 0.08, 0.04, 0.02), frameMat);
+      frameB.position.set(pos[0], pos[1] - h / 2, pos[2] + 0.01);
+      if (rotY) frameB.rotation.y = rotY;
+      this.decorationGroup!.add(frameB);
+    });
+
+    // Floor cable runs from server rack → desk area
+    const cableMat = this.makeToonMaterial({ color: 0x0a0a12 });
+    const cableSegments = [
+      { pos: [8.5, 0.02, -7.5] as [number, number, number], size: [0.06, 0.03, 5] as [number, number, number] },
+      { pos: [7.5, 0.02, -10] as [number, number, number], size: [2, 0.03, 0.06] as [number, number, number] },
+    ];
+    cableSegments.forEach(({ pos, size }) => {
+      const cable = new THREE.Mesh(new THREE.BoxGeometry(...size), cableMat);
+      cable.position.set(...pos);
+      this.decorationGroup!.add(cable);
+    });
+
+    // Window blinds — 12 horizontal slats on front window
+    const blindMat = this.makeToonMaterial({ color: 0x0d1025 });
+    for (let i = 0; i < 12; i++) {
+      const slat = new THREE.Mesh(
+        new THREE.BoxGeometry(9.8, 0.03, 0.15),
+        blindMat
+      );
+      slat.position.set(0, 0.5 + i * 0.22, 11.9);
+      slat.rotation.x = 0.15;
+      this.decorationGroup!.add(slat);
+    }
+
+    // Geometric plants — large plant near front window
+    const potMat = this.makeToonMaterial({ color: 0x2a1a1a });
+    const leafMat = this.makeToonMaterial({ color: 0x0a3a1a });
+
+    const bigPot = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.35, 8), potMat);
+    bigPot.position.set(-4, 0.175, 11);
+    this.decorationGroup!.add(bigPot);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 6), leafMat);
+    stem.position.set(-4, 0.75, 11);
+    this.decorationGroup!.add(stem);
+    // Diamond-shaped leaves
+    for (let i = 0; i < 5; i++) {
+      const leaf = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.15, 0),
+        leafMat
+      );
+      const angle = (i / 5) * Math.PI * 2;
+      leaf.position.set(
+        -4 + Math.cos(angle) * 0.25,
+        0.9 + i * 0.12,
+        11 + Math.sin(angle) * 0.25
+      );
+      leaf.scale.set(1, 1.5, 0.5);
+      this.decorationGroup!.add(leaf);
+    }
+
+    // Small plant on side table
+    const smallPot = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.12, 6), potMat);
+    smallPot.position.set(-5.5, 0.56, -9.5);
+    this.decorationGroup!.add(smallPot);
+    for (let i = 0; i < 3; i++) {
+      const leaf = new THREE.Mesh(new THREE.OctahedronGeometry(0.08, 0), leafMat);
+      const angle = (i / 3) * Math.PI * 2;
+      leaf.position.set(-5.5 + Math.cos(angle) * 0.1, 0.68 + i * 0.06, -9.5 + Math.sin(angle) * 0.1);
+      leaf.scale.set(1, 1.3, 0.5);
+      this.decorationGroup!.add(leaf);
+    }
+
+    // Photo frame on side table
+    const frameMat2 = this.makeToonMaterial({ color: 0x1a1d30 });
+    const photoFrame = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.3, 0.03), frameMat2);
+    photoFrame.position.set(-5.3, 0.65, -9.8);
+    photoFrame.rotation.y = 0.3;
+    this.decorationGroup!.add(photoFrame);
+    const photoScreen = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.2, 0.25),
+      new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: 0x05d9e8,
+        emissiveIntensity: 0.3,
+      })
+    );
+    photoScreen.position.set(-5.3, 0.65, -9.78);
+    photoScreen.rotation.y = 0.3;
+    this.decorationGroup!.add(photoScreen);
+
+    // Trophy on shelf
+    const trophyBase = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.06, 8), frameMat2);
+    trophyBase.position.set(9.2, 1.73, 0);
+    this.decorationGroup!.add(trophyBase);
+    const trophyBody = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.06, 0.2, 8), frameMat2);
+    trophyBody.position.set(9.2, 1.86, 0);
+    this.decorationGroup!.add(trophyBody);
+    const trophyStar = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.06, 0),
+      new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: COLORS.amber,
+        emissiveIntensity: 1.0,
+      })
+    );
+    trophyStar.position.set(9.2, 2.0, 0);
+    this.decorationGroup!.add(trophyStar);
+
+    this.scene.add(this.decorationGroup);
+  }
+
+  // Atmospheric effects — larger particles, blue-tinted rain
   addAtmosphericEffects() {
     const particleCount = this.qualityConfig.particles.floatingCount;
     const positions = new Float32Array(particleCount * 3);
@@ -1823,6 +2392,9 @@ export class CyberpunkScene {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
     this.composer?.setSize(w, h);
+    if (this.outlinePass) {
+      this.outlinePass.setSize(w, h);
+    }
   };
 
   resolveCollisions(position: THREE.Vector3): THREE.Vector3 {
@@ -1985,11 +2557,32 @@ export class CyberpunkScene {
       if ("emissiveIntensity" in mat) {
         mat.emissiveIntensity = 0.8 + Math.sin(time * 3 + i) * 0.4;
       }
-      if (mesh.geometry.type === "OctahedronGeometry") {
+      if (mesh.geometry.type === "OctahedronGeometry" || mesh.geometry.type === "IcosahedronGeometry") {
         mesh.position.y = 2.5 + Math.sin(time * 1.5 + i) * 0.15;
         mesh.rotation.x = time * 0.3;
       }
     });
+
+    // Station-specific animations
+    for (const mesh of this.stationAnimMeshes) {
+      const anim = mesh.userData.animationType;
+      if (anim === "skillRing") {
+        mesh.rotation.z += mesh.userData.rotationSpeed * delta;
+      } else if (anim === "skillOrbit") {
+        const idx = mesh.userData.orbitIndex as number;
+        const angle = time * 0.5 + (idx / 6) * Math.PI * 2;
+        mesh.position.x = Math.cos(angle) * 0.8;
+        mesh.position.z = Math.sin(angle) * 0.8;
+        mesh.position.y = 1.5 + Math.sin(time * 2 + idx) * 0.1;
+      } else if (anim === "droneBob") {
+        mesh.position.y = 1.8 + Math.sin(time * 1.5) * 0.15;
+      } else if (anim === "portraitPulse") {
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        if (mat.emissiveIntensity !== undefined) {
+          mat.emissiveIntensity = 0.4 + Math.sin(time * 2) * 0.3;
+        }
+      }
+    }
 
     if (this.floatingParticles) {
       const pos = this.floatingParticles.geometry.attributes.position;
@@ -2422,6 +3015,15 @@ export class CyberpunkScene {
       this.revertToStandardMaterials();
     }
 
+    // Outline pass gating
+    if (this.outlinePass) {
+      this.outlinePass.enabled = this.qualityConfig.outlinePass.enabled;
+      if (this.qualityConfig.outlinePass.enabled) {
+        this.outlinePass.edgeStrength = this.qualityConfig.outlinePass.edgeStrength;
+        this.outlinePass.edgeThickness = this.qualityConfig.outlinePass.edgeThickness;
+      }
+    }
+
     this.onQualityChange?.(tier);
   }
 
@@ -2481,6 +3083,10 @@ export class CyberpunkScene {
         set.ao?.dispose();
       }
     }
+
+    // Dispose gradient maps
+    this.gradientMap3?.dispose();
+    this.gradientMap5?.dispose();
 
     this.assetLoader.dispose();
     this.composer?.dispose();

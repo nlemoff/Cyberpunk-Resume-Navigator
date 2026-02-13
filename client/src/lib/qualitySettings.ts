@@ -13,6 +13,10 @@ export interface QualityConfig {
   envMap: { enabled: boolean; intensity: number };
   pbrTextures: boolean;
   physicalMaterials: boolean;
+  toonShading: boolean;
+  outlinePass: { enabled: boolean; edgeStrength: number; edgeThickness: number };
+  rooftopDetails: boolean;
+  interiorDecoration: boolean;
 }
 
 const ULTRA: QualityConfig = {
@@ -28,6 +32,10 @@ const ULTRA: QualityConfig = {
   envMap: { enabled: true, intensity: 1.0 },
   pbrTextures: true,
   physicalMaterials: true,
+  toonShading: true,
+  outlinePass: { enabled: true, edgeStrength: 2.5, edgeThickness: 1.0 },
+  rooftopDetails: true,
+  interiorDecoration: true,
 };
 
 const HIGH: QualityConfig = {
@@ -43,6 +51,10 @@ const HIGH: QualityConfig = {
   envMap: { enabled: true, intensity: 0.6 },
   pbrTextures: true,
   physicalMaterials: false,
+  toonShading: true,
+  outlinePass: { enabled: true, edgeStrength: 2.0, edgeThickness: 0.8 },
+  rooftopDetails: true,
+  interiorDecoration: true,
 };
 
 const LOW: QualityConfig = {
@@ -58,6 +70,10 @@ const LOW: QualityConfig = {
   envMap: { enabled: false, intensity: 0 },
   pbrTextures: false,
   physicalMaterials: false,
+  toonShading: false,
+  outlinePass: { enabled: false, edgeStrength: 0, edgeThickness: 0 },
+  rooftopDetails: false,
+  interiorDecoration: false,
 };
 
 export const PHOTO_MODE_CONFIG: QualityConfig = {
@@ -69,6 +85,10 @@ export const PHOTO_MODE_CONFIG: QualityConfig = {
   envMap: { enabled: true, intensity: 1.2 },
   pbrTextures: true,
   physicalMaterials: true,
+  toonShading: true,
+  outlinePass: { enabled: true, edgeStrength: 3.0, edgeThickness: 1.2 },
+  rooftopDetails: true,
+  interiorDecoration: true,
 };
 
 export const QUALITY_PRESETS: Record<QualityTier, QualityConfig> = {
