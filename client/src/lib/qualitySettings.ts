@@ -20,7 +20,7 @@ const ULTRA: QualityConfig = {
   shadows: { enabled: true, mapSize: 2048, casterCount: 2 },
   particles: { floatingCount: 800, rainCount: 2000 },
   cityLightFlicker: true,
-  toneMapping: { exposure: 0.7 },
+  toneMapping: { exposure: 1.1 },
   photoMode: false,
 };
 
@@ -32,7 +32,7 @@ const HIGH: QualityConfig = {
   shadows: { enabled: true, mapSize: 1024, casterCount: 1 },
   particles: { floatingCount: 300, rainCount: 800 },
   cityLightFlicker: true,
-  toneMapping: { exposure: 0.7 },
+  toneMapping: { exposure: 1.0 },
   photoMode: false,
 };
 
@@ -44,7 +44,7 @@ const LOW: QualityConfig = {
   shadows: { enabled: false, mapSize: 512, casterCount: 0 },
   particles: { floatingCount: 100, rainCount: 300 },
   cityLightFlicker: false,
-  toneMapping: { exposure: 0.75 },
+  toneMapping: { exposure: 1.0 },
   photoMode: false,
 };
 

@@ -81,7 +81,7 @@ export class CyberpunkScene {
     this.container = container;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(COLORS.darkNavy);
-    this.scene.fog = new THREE.FogExp2(COLORS.darkNavy, 0.012);
+    this.scene.fog = new THREE.FogExp2(COLORS.darkNavy, 0.006);
     this.clock = new THREE.Clock();
 
     this.camera = new THREE.PerspectiveCamera(
@@ -283,13 +283,12 @@ export class CyberpunkScene {
 
     const windowGlass = new THREE.Mesh(
       new THREE.PlaneGeometry(10, 3),
-      new THREE.MeshPhysicalMaterial({
-        color: 0x0a1428,
+      new THREE.MeshBasicMaterial({
+        color: 0x0a1e3a,
         transparent: true,
-        opacity: 0.15,
-        roughness: 0,
-        metalness: 0.1,
-        transmission: 0.9,
+        opacity: 0.06,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
         side: THREE.DoubleSide,
       })
     );
@@ -319,13 +318,12 @@ export class CyberpunkScene {
 
     const leftWallGlass = new THREE.Mesh(
       new THREE.PlaneGeometry(roomDepth, roomHeight),
-      new THREE.MeshPhysicalMaterial({
-        color: 0x0a1428,
+      new THREE.MeshBasicMaterial({
+        color: 0x1a0a2e,
         transparent: true,
-        opacity: 0.1,
-        roughness: 0,
-        metalness: 0.1,
-        transmission: 0.9,
+        opacity: 0.05,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
         side: THREE.DoubleSide,
       })
     );
@@ -773,7 +771,7 @@ export class CyberpunkScene {
   }
 
   addLighting() {
-    const ambient = new THREE.AmbientLight(0x050810, 0.15);
+    const ambient = new THREE.AmbientLight(0x0c1020, 0.6);
     this.scene.add(ambient);
 
     const shadowsEnabled = this.qualityConfig.shadows.enabled;
@@ -781,7 +779,7 @@ export class CyberpunkScene {
     const maxCasters = this.qualityConfig.shadows.casterCount;
     let casterIndex = 0;
 
-    const cyanPoint = new THREE.PointLight(COLORS.cyan, 0.4, 8);
+    const cyanPoint = new THREE.PointLight(COLORS.cyan, 1.2, 15);
     cyanPoint.position.set(-8, 3, 5);
     if (shadowsEnabled && casterIndex < maxCasters) {
       cyanPoint.castShadow = true;
@@ -792,7 +790,7 @@ export class CyberpunkScene {
     this.scene.add(cyanPoint);
     this.shadowCastingLights.push(cyanPoint);
 
-    const pinkPoint = new THREE.PointLight(COLORS.hotPink, 0.3, 8);
+    const pinkPoint = new THREE.PointLight(COLORS.hotPink, 1.0, 15);
     pinkPoint.position.set(8, 3, -5);
     if (shadowsEnabled && casterIndex < maxCasters) {
       pinkPoint.castShadow = true;
@@ -803,43 +801,47 @@ export class CyberpunkScene {
     this.scene.add(pinkPoint);
     this.shadowCastingLights.push(pinkPoint);
 
-    const purplePoint = new THREE.PointLight(COLORS.purple, 0.3, 6);
+    const purplePoint = new THREE.PointLight(COLORS.purple, 0.8, 12);
     purplePoint.position.set(0, 3.5, 0);
     this.scene.add(purplePoint);
 
-    const amberSpot = new THREE.SpotLight(COLORS.amber, 0.8, 8, Math.PI / 6, 0.5);
+    const amberSpot = new THREE.SpotLight(COLORS.amber, 1.5, 10, Math.PI / 5, 0.4);
     amberSpot.position.set(7, 3.5, -10);
     amberSpot.target.position.set(7, 0, -10);
     this.scene.add(amberSpot);
     this.scene.add(amberSpot.target);
 
-    const windowLight = new THREE.RectAreaLight(COLORS.cyan, 5, 10, 3);
+    const windowLight = new THREE.RectAreaLight(COLORS.cyan, 8, 10, 3);
     windowLight.position.set(0, 2, 12.5);
     windowLight.lookAt(0, 2, 0);
     this.scene.add(windowLight);
 
-    const leftWindowLight = new THREE.RectAreaLight(COLORS.hotPink, 2.5, 24, 4);
+    const leftWindowLight = new THREE.RectAreaLight(COLORS.hotPink, 5, 24, 4);
     leftWindowLight.position.set(-10.5, 2, 0);
     leftWindowLight.lookAt(0, 2, 0);
     this.scene.add(leftWindowLight);
 
-    const cityGlow = new THREE.DirectionalLight(0x6a3d9a, 1.5);
+    const cityGlow = new THREE.DirectionalLight(0x6a3d9a, 2.5);
     cityGlow.position.set(-10, 8, 15);
     cityGlow.target.position.set(0, 0, 0);
     this.scene.add(cityGlow);
     this.scene.add(cityGlow.target);
 
-    const outsideCyan = new THREE.PointLight(COLORS.cyan, 2.5, 30);
+    const outsideCyan = new THREE.PointLight(COLORS.cyan, 4.0, 40);
     outsideCyan.position.set(-15, 3, 5);
     this.scene.add(outsideCyan);
 
-    const outsidePink = new THREE.PointLight(COLORS.hotPink, 2.0, 25);
+    const outsidePink = new THREE.PointLight(COLORS.hotPink, 3.5, 35);
     outsidePink.position.set(0, 4, 18);
     this.scene.add(outsidePink);
 
-    const outsidePurple = new THREE.PointLight(COLORS.purple, 2.0, 28);
+    const outsidePurple = new THREE.PointLight(COLORS.purple, 3.0, 35);
     outsidePurple.position.set(-12, 5, -5);
     this.scene.add(outsidePurple);
+
+    const outsideAmber = new THREE.PointLight(COLORS.amber, 2.0, 30);
+    outsideAmber.position.set(5, 6, 20);
+    this.scene.add(outsideAmber);
 
     this.addLightCones();
   }
@@ -848,22 +850,22 @@ export class CyberpunkScene {
     const godRayMat = new THREE.MeshBasicMaterial({
       color: COLORS.cyan,
       transparent: true,
-      opacity: 0.025,
+      opacity: 0.08,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
 
-    const ray1 = new THREE.Mesh(new THREE.PlaneGeometry(4, 5), godRayMat);
-    ray1.position.set(-2, 1.8, 9);
-    ray1.rotation.x = -0.3;
+    const ray1 = new THREE.Mesh(new THREE.PlaneGeometry(5, 8), godRayMat);
+    ray1.position.set(-2, 2, 8);
+    ray1.rotation.x = -0.25;
     ray1.rotation.y = 0.15;
     this.scene.add(ray1);
     this.lightCones.push(ray1);
 
-    const ray2 = new THREE.Mesh(new THREE.PlaneGeometry(3, 5), godRayMat);
-    ray2.position.set(2, 1.8, 9);
-    ray2.rotation.x = -0.3;
+    const ray2 = new THREE.Mesh(new THREE.PlaneGeometry(4, 8), godRayMat);
+    ray2.position.set(3, 2, 8);
+    ray2.rotation.x = -0.25;
     ray2.rotation.y = -0.15;
     this.scene.add(ray2);
     this.lightCones.push(ray2);
@@ -871,35 +873,52 @@ export class CyberpunkScene {
     const godRayPinkMat = new THREE.MeshBasicMaterial({
       color: COLORS.hotPink,
       transparent: true,
-      opacity: 0.02,
+      opacity: 0.06,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
 
-    const ray3 = new THREE.Mesh(new THREE.PlaneGeometry(3, 6), godRayPinkMat);
-    ray3.position.set(-8, 2, 3);
+    const ray3 = new THREE.Mesh(new THREE.PlaneGeometry(5, 8), godRayPinkMat);
+    ray3.position.set(-7, 2, 3);
     ray3.rotation.y = Math.PI / 2 + 0.2;
-    ray3.rotation.x = -0.15;
+    ray3.rotation.x = -0.1;
     this.scene.add(ray3);
     this.lightCones.push(ray3);
 
-    const ray4 = new THREE.Mesh(new THREE.PlaneGeometry(3, 6), godRayPinkMat);
-    ray4.position.set(-8, 2, -4);
+    const ray4 = new THREE.Mesh(new THREE.PlaneGeometry(5, 8), godRayPinkMat);
+    ray4.position.set(-7, 2, -4);
     ray4.rotation.y = Math.PI / 2 - 0.2;
-    ray4.rotation.x = -0.15;
+    ray4.rotation.x = -0.1;
     this.scene.add(ray4);
     this.lightCones.push(ray4);
+
+    const godRayAmberMat = new THREE.MeshBasicMaterial({
+      color: COLORS.amber,
+      transparent: true,
+      opacity: 0.04,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+
+    const ray5 = new THREE.Mesh(new THREE.PlaneGeometry(3, 6), godRayAmberMat);
+    ray5.position.set(0, 2.5, 7);
+    ray5.rotation.x = -0.35;
+    this.scene.add(ray5);
+    this.lightCones.push(ray5);
   }
 
   buildCityscape() {
     const cityGroup = new THREE.Group();
 
-    const buildingColors = [0x060918, 0x080c20, 0x0a0815];
+    const buildingColors = [0x0c1225, 0x101830, 0x0e1420];
     const buildingMats = buildingColors.map(c => new THREE.MeshStandardMaterial({
       color: c,
-      roughness: 0.8,
-      metalness: 0.3,
+      roughness: 0.7,
+      metalness: 0.4,
+      emissive: c,
+      emissiveIntensity: 0.05,
     }));
 
     const windowGeo = new THREE.PlaneGeometry(0.3, 0.4);
@@ -963,7 +982,7 @@ export class CyberpunkScene {
                 building.position.z - d / 2 + col * 0.6 + 0.3
               ),
               rotY: side > 0 ? Math.PI / 2 : -Math.PI / 2,
-              opacity: 0.2 + Math.random() * 0.6,
+              opacity: 0.4 + Math.random() * 0.6,
             });
           }
         }
@@ -997,7 +1016,7 @@ export class CyberpunkScene {
                 mega.position.z - md / 2 + col * 0.6 + 0.3
               ),
               rotY: side > 0 ? Math.PI / 2 : -Math.PI / 2,
-              opacity: 0.2 + Math.random() * 0.6,
+              opacity: 0.4 + Math.random() * 0.6,
             });
           }
         }
